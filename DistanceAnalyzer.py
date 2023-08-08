@@ -24,12 +24,12 @@ class DistanceAnalyzer:
         self.error_min_list = None
         self.percentage_list = self._calculate_bin_percentage(self.type_list)
 
-        # for traditional clustering
-        self.n_clusters = 2  
+        # # for traditional clustering
+        # self.n_clusters = 2  
 
-        # 指定各个cluster中的点的个数
-        self.n_A = 500
-        self.n_B = 500
+        # # 指定各个cluster中的点的个数
+        # self.n_A = 500
+        # self.n_B = 500
         
     def _create_type_matrix(self, type_list):
         n = len(type_list)
@@ -80,11 +80,11 @@ class DistanceAnalyzer:
         # 计算拟合误差
         error = np.sqrt(np.mean((y_noisy - y_fit) ** 2))
 
-        return error,[a_fit, b_fit]
+        return error,[a_fit, b_fit],y_fit
 
     def _partial_shuffle(self, input_list, percentage=10):
         '''Shuffles any n number of values in a list'''
-        count = int(len(input_list)*percentage/100)
+        count = int(len(input_list)*percentage/100) # make it adapted
         indices_to_shuffle = random.sample(range(len(input_list)), k=count)
         to_shuffle = [input_list[i] for i in indices_to_shuffle]
         random.shuffle(to_shuffle)
@@ -274,7 +274,7 @@ class DistanceAnalyzer:
         print(np.count_nonzero(labels == 1))
 
     def cluster_shuffle(self, num_epochs=100):
-        error_min, initial_guess_min = self._calculate_error(self.percentage_list)
+        error_min, initial_guess_min, y_fit = self._calculate_error(self.percentage_list)
         type_list_fin = self.type_list
         self.num_epochs = num_epochs
         error_min_list = []
@@ -286,7 +286,7 @@ class DistanceAnalyzer:
             for _ in range(self.shuffle_scale):
                 type_list_shuffle = self._partial_shuffle(type_list_fin, percentage=10)
                 percentage_list = self._calculate_bin_percentage(type_list_shuffle)
-                error, initial_guess = self._calculate_error(percentage_list, initial_guess_min)
+                error, initial_guess, y_fit = self._calculate_error(percentage_list, initial_guess_min)
                 error_list.append(error)
                 initial_guess_list.append(initial_guess)
                 type_list_list.append(type_list_shuffle)
@@ -315,19 +315,27 @@ class DistanceAnalyzer:
         plt.title('Learning Curve')
 
     def visualize_results(self):
-        plt.figure(figsize=(4, 4))
+        plt.figure(figsize=(8, 4))
 
-        # plt.subplot(1, 2, 1)
+        plt.subplot(1, 2, 1)
         plt.plot(self.bin_list[1:], self.percentage_list, label='Percentage before clustered')
         plt.xlabel('Distance (microns)')
         plt.ylabel('Percentage')
         plt.title('Percentage before clustered')
 
-        # plt.subplot(1, 2, 2)
-        # plt.plot(self.bin_list[1:], self.percentage_list_clustered, label='Percentage after clustered')
-        # plt.xlabel('Distance (microns)')
-        # plt.ylabel('Percentage')
-        # plt.title('Percentage after clustered')
+        _, _, y_fit = self._calculate_error(self.percentage_list)
+        plt.plot(self.bin_list[1:], y_fit, label='Negative Exponential Fit')
+        plt.legend()
+
+        plt.subplot(1, 2, 2)
+        plt.plot(self.bin_list[1:], self.percentage_list_clustered, label='Percentage after clustered')
+        plt.xlabel('Distance (microns)')
+        plt.ylabel('Percentage')
+        plt.title('Percentage after clustered')
+
+        _, _, y_fit = self._calculate_error(self.percentage_list_clustered)
+        plt.plot(self.bin_list[1:], y_fit, label='Negative Exponential Fit')
+        plt.legend()
 
         # plt.show()
 

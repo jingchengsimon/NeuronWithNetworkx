@@ -349,14 +349,29 @@ class CellwithNetworkx:
         return distance_matrix
 
     def _recursive_plot(self, s, seg_list, index=0):
+        markers = {
+            'A': 'or',  # 红色圆形
+            'B': 'xb',  # 蓝色叉形
+            'C': 'sg',  # 绿色方形
+            'D': 'pk',  # 紫色五角星
+            'E': 'dc',  # 青色钻石形
+            'F': '^m',  # 品红色三角形
+            'G': '*y',  # 黄色星型
+            'H': '+k',  # 黑色十字形
+        }
+
         if index == 0:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
             if self.initialize_cluster_flag == False:
-                if self.type_list[index-1] == 'A':
-                    return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
-                else:
-                    return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
+                segment_type = self.type_list[index - 1]
+                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+        
+                # if self.type_list[index-1] == 'A':
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
+                # else:
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
             else:
                 return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
         

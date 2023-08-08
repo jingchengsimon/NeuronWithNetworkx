@@ -3,36 +3,34 @@ from CellwithNetworkx import *
 from DistanceAnalyzer import *
 import matplotlib.pyplot as plt
 
+import sys 
+sys.setrecursionlimit(1000000)
+
 # Example usage:
 swc_file_path = './modelFile/cell1.asc'
 
-num_synapses_to_add = 2000
-k = [1000]
-cluster_radius = 2.5
+num_synapses_to_add = 26000
+# k, cluster_radius = 6000, 2.5
 
 bin_list = [0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245]
 # bin_list = [0, 4.5, 12, 33, 90, 245]
 
-for i in range(len(k)):
-    cell1 = CellwithNetworkx(swc_file_path)
-    # type_list = cell1.add_synapses(num_synapses_to_add)
-    type_list = cell1.add_clustered_synapses(num_synapses_to_add, k[i], cluster_radius)
-    distance_matrix = cell1.calculate_distance_matrix()
-    cell1.visualize_synapses('Before Clustering')
-    cell1.visualize_distance()
+# for i in range(len(k)):
+cell1 = CellwithNetworkx(swc_file_path)
+type_list = cell1.add_synapses(num_synapses_to_add)
+# type_list = cell1.add_clustered_synapses(num_synapses_to_add, k, cluster_radius)
+distance_matrix = cell1.calculate_distance_matrix()
+cell1.visualize_synapses('Before Clustering')
 
-    analyzer = DistanceAnalyzer(distance_matrix, type_list, bin_list)
-    analyzer._calculate_bin_percentage(type_list)
-    analyzer.visualize_results()
-    plt.show()
+analyzer = DistanceAnalyzer(distance_matrix, type_list, bin_list)
+analyzer._calculate_bin_percentage(type_list)
+analyzer.visualize_results()
 
-# num_epochs = 1000
-# analyzer.cluster_shuffle(num_epochs)
-# type_list_clustered = analyzer.type_list_clustered
-# cell1.set_type_list(np.array(type_list_clustered))
-
-# cell1.visualize_synapses('After Clustering')
-# # cell1.visualize_distance()
+num_epochs = 1000
+analyzer.cluster_shuffle(num_epochs)
+type_list_clustered = analyzer.type_list_clustered
+cell1.set_type_list(np.array(type_list_clustered))
+cell1.visualize_synapses('After Clustering')
 
 # def plot_heatmap(type_list_1, type_list_2):
 #     # 创建一个2*n的矩阵，用于表示两个type_list的热力图
@@ -85,14 +83,10 @@ for i in range(len(k)):
 
 # # plt.show()
 
-# analyzer.visualize_learning_curve()
-# analyzer.visualize_results()
-# plt.title('Cluster Shuffle')
+analyzer.visualize_learning_curve()
+analyzer.visualize_results()
 
 # analyzer.cluster_traditional()
 # analyzer.visualize_results()
-# plt.title('Cluster Traditional')
-# plt.show()
 
-plt.show()
 
