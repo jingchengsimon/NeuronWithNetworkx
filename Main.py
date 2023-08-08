@@ -9,11 +9,11 @@ sys.setrecursionlimit(1000000)
 # Example usage:
 swc_file_path = './modelFile/cell1.asc'
 
-num_synapses_to_add = 26000
+num_synapses_to_add = 10000
 # k, cluster_radius = 6000, 2.5
 
-bin_list = [0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245]
-# bin_list = [0, 4.5, 12, 33, 90, 245]
+bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
+# bin_array = np.array([0, 4.5, 12, 33, 90, 245])
 
 # for i in range(len(k)):
 cell1 = CellwithNetworkx(swc_file_path)
@@ -22,11 +22,11 @@ type_list = cell1.add_synapses(num_synapses_to_add)
 distance_matrix = cell1.calculate_distance_matrix()
 cell1.visualize_synapses('Before Clustering')
 
-analyzer = DistanceAnalyzer(distance_matrix, type_list, bin_list)
-analyzer._calculate_bin_percentage(type_list)
-analyzer.visualize_results()
+analyzer = DistanceAnalyzer(distance_matrix, np.array(type_list), bin_array)
+# analyzer._calculate_bin_percentage(type_list)
+# analyzer.visualize_results()
 
-num_epochs = 1000
+num_epochs = 100
 analyzer.cluster_shuffle(num_epochs)
 type_list_clustered = analyzer.type_list_clustered
 cell1.set_type_list(np.array(type_list_clustered))
