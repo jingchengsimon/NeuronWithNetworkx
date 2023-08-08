@@ -1,97 +1,116 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.optimize import curve_fit
 from sklearn.cluster import SpectralClustering
-from CellwithNetworkx import *
 import time
 from tqdm import tqdm
-import random
+import numba 
+from numba import jit
+import warnings
+from copy import deepcopy
+warnings.filterwarnings("ignore", category=numba.NumbaDeprecationWarning)
 
 class DistanceAnalyzer:
-    def __init__(self, distance_matrix, type_list, bin_list):
+    def __init__(self, distance_matrix, type_array, bin_array):
         self.distance_matrix = distance_matrix
-        self.type_list = type_list
-        self.bin_list = bin_list
+        self.type_array = type_array
+        self.bin_array = bin_array
 
-        self.initial_guess = [1, 1]
         self.max_iters = 10000
         self.num_epochs = None
-        self.shuffle_scale = 10
-        self.type_list_clustered = None
-        self.percentage_list_clustered = None
+        self.shuffle_scale = 20
+        self.type_array_clustered = None
+        self.percentage_array_clustered = None
         self.error_min_list = None
-        self.percentage_list = self._calculate_bin_percentage(self.type_list)
+        self.percentage_array = self._calculate_bin_percentage(self.type_array)
 
+        self.percentage_array_list = None
         # # for traditional clustering
         # self.n_clusters = 2  
 
         # # 指定各个cluster中的点的个数
         # self.n_A = 500
         # self.n_B = 500
-        
-    def _create_type_matrix(self, type_list):
-        n = len(type_list)
-        type_matrix = np.zeros((n, n))
 
-        for i in range(n):
-            for j in range(n):
-                if self.type_list[i] == type_list[j]:
-                    type_matrix[i, j] = 1
-                else:
-                    type_matrix[i, j] = 0
+    # @jit  
+    def _create_type_matrix(self, type_array):
+        # n = len(type_array)
+        # type_matrix = np.zeros((n, n))
+
+        # for i in range(n):
+        #     for j in range(n):
+        #         if self.type_array[i] == type_array[j]:
+        #             type_matrix[i, j] = 1
+        #         else:
+        #             type_matrix[i, j] = 0
+        type_matrix = (self.type_array[:, np.newaxis] == type_array).astype(int)
 
         return type_matrix
     
-    def _calculate_bin_percentage(self, type_list):
-        distance_matrix, bin_list = self.distance_matrix, self.bin_list
-        type_matrix = self._create_type_matrix(type_list)
-        percentage_list = []
-        for i, j in zip(bin_list, bin_list[1:]):
+    # @jit
+    def _calculate_bin_percentage(self, type_array):
+        distance_matrix, bin_array = self.distance_matrix, self.bin_array
+        type_matrix = self._create_type_matrix(type_array)
+        percentage_array = np.zeros(len(bin_array) - 1)
+        k = 0
+        corr = 0.3
+        for i, j in zip(bin_array, bin_array[1:]):
             mask_dis = (distance_matrix < j) & (distance_matrix > i)
             mask_dis_type = mask_dis & (type_matrix == 1)
             # distance_matrix_bin  = distance_matrix[(distance_matrix < j) & (distance_matrix > i)]
             count_pairs_all = np.count_nonzero(distance_matrix[mask_dis])
             count_pairs_same = np.count_nonzero(distance_matrix[mask_dis_type])
-            if count_pairs_all == 0:
-                percentage_list.append(0)
-            else:
-                percentage_list.append(count_pairs_same / count_pairs_all)
+            percentage_array[k] = corr * count_pairs_same / count_pairs_all if count_pairs_all != 0 else 0
+            # if count_pairs_all == 0:
+            #     percentage_array.append(0)
+            # else:
+            #     percentage_array.append(count_pairs_same / count_pairs_all)
+            k += 1
+        return percentage_array
 
-        return percentage_list
-
-    def _exponential_func(self, x, a, b):
-        lambd = 7
+    def _exponential_func(self, x, a, b, lambd):
+        # a, lambd = 0.3, 4.6
         return a * np.exp(-x / lambd) + b
 
-    def _calculate_error(self, percentage_list, initial_guess=[1, 1]):
-        bin_list = self.bin_list  
-        x = np.array(bin_list[1:])
-        y_noisy = np.array(percentage_list)
-        params, covariance = curve_fit(self._exponential_func, x, y_noisy, p0=initial_guess, maxfev=10000)
+    # @jit
+    def _calculate_error(self, percentage_array): 
+        x = self.bin_array[1:]
+        y_noisy = percentage_array
+        params, _ = curve_fit(self._exponential_func, x, y_noisy, p0=[0.3, 0.15, 10], maxfev=10000)
 
-        # 获取拟合结果
-        a_fit, b_fit = params
-
+        # # 获取拟合结果
+        [a_fit, b_fit, lambd_fit] = params
+        print('lambda: ', lambd_fit,'a: ', a_fit, 'b: ', b_fit)
+        a, b, lambd = 0.3, 0.15, 10
         # 计算拟合值
-        y_fit = self._exponential_func(x, a_fit, b_fit)
+        y_fit = self._exponential_func(x, a, b, lambd)
 
         # 计算拟合误差
-        error = np.sqrt(np.mean((y_noisy - y_fit) ** 2))
+        # error = np.sqrt(np.mean((y_noisy - y_fit) ** 2))
+        error = np.sqrt(0.1*(lambd_fit - lambd) ** 2 + 0.9*((a_fit - a) ** 2))
+        # error = np.abs(lambd_fit - lambd) + np.abs(a_fit - a)
 
-        return error,[a_fit, b_fit],y_fit
+        return error, y_fit, [a_fit, b_fit, lambd_fit]
 
-    def _partial_shuffle(self, input_list, percentage=10):
+    # @jit
+    def _partial_shuffle(self, input_array, percentage=10):
         '''Shuffles any n number of values in a list'''
-        count = int(len(input_list)*percentage/100) # make it adapted
-        indices_to_shuffle = random.sample(range(len(input_list)), k=count)
-        to_shuffle = [input_list[i] for i in indices_to_shuffle]
-        random.shuffle(to_shuffle)
-        for index, value in enumerate(to_shuffle):
-            old_index = indices_to_shuffle[index]
-            input_list[old_index] = value
-        return input_list
+        shuffle_array = deepcopy(input_array)
+        count = int(len(shuffle_array) * percentage / 100)
+        indices_to_shuffle = np.random.choice(len(shuffle_array), size=count, replace=False)
+        to_shuffle = shuffle_array[indices_to_shuffle]
+        np.random.shuffle(to_shuffle)
+        shuffle_array[indices_to_shuffle] = to_shuffle
+
+        # count = int(len(input_array)*percentage/100) # make it adapted
+        # indices_to_shuffle = random.sample(range(len(input_array)), k=count)
+        # to_shuffle = [input_array[i] for i in indices_to_shuffle]
+        # random.shuffle(to_shuffle)
+        # for index, value in enumerate(to_shuffle):
+        #     old_index = indices_to_shuffle[index]
+        #     input_array[old_index] = value
+        return shuffle_array
 
     def _custom_spectral_clustering(self):
         distance_matrix, n_clusters, n_A, n_B = self.distance_matrix, self.n_clusters, self.n_A, self.n_B
@@ -261,39 +280,39 @@ class DistanceAnalyzer:
         # 使用自定义KMeans聚类算法聚类
         labels = self._custom_kmeans_1()
 
-        # 重新得到聚类后的type_list
-        type_list_clustered = np.array(['A' if label == 0 else 'B' for label in labels])
+        # 重新得到聚类后的type_array
+        type_array_clustered = np.array(['A' if label == 0 else 'B' for label in labels])
 
-        # Use the final type_list and calculate the clustered percentage_list
-        self.type_list_clustered = type_list_clustered
-        self.percentage_list_clustered = self._calculate_bin_percentage(self.type_list_clustered)
+        # Use the final type_array and calculate the clustered percentage_array
+        self.type_array_clustered = type_array_clustered
+        self.percentage_array_clustered = self._calculate_bin_percentage(self.type_array_clustered)
 
         # 打印调整后的聚类结果
         print("聚类结果:")
         print(np.count_nonzero(labels == 0))
         print(np.count_nonzero(labels == 1))
 
+    # @jit
     def cluster_shuffle(self, num_epochs=100):
-        error_min, initial_guess_min, y_fit = self._calculate_error(self.percentage_list)
-        type_list_fin = self.type_list
+        error_min, _, _ = self._calculate_error(self.percentage_array)
+        type_array_fin = deepcopy(self.type_array)
         self.num_epochs = num_epochs
         error_min_list = []
+        percentage_array_list = []
         for _ in tqdm(range(num_epochs)):
             error_list = [error_min]
-            initial_guess_list = [initial_guess_min]
-            type_list_list = [type_list_fin]
+            type_array_list = [type_array_fin]
 
             for _ in range(self.shuffle_scale):
-                type_list_shuffle = self._partial_shuffle(type_list_fin, percentage=10)
-                percentage_list = self._calculate_bin_percentage(type_list_shuffle)
-                error, initial_guess, y_fit = self._calculate_error(percentage_list, initial_guess_min)
+                type_array_shuffle = self._partial_shuffle(type_array_fin, percentage=10)
+                percentage_array = self._calculate_bin_percentage(type_array_shuffle)
+                error, _, _ = self._calculate_error(percentage_array)
                 error_list.append(error)
-                initial_guess_list.append(initial_guess)
-                type_list_list.append(type_list_shuffle)
+                type_array_list.append(type_array_shuffle)
 
             error_min = min(error_list)
-            type_list_fin = type_list_list[error_list.index(error_min)]
-            initial_guess = initial_guess_list[error_list.index(error_min)]
+            type_array_fin = type_array_list[error_list.index(error_min)]
+            percentage_array_list.append(self._calculate_bin_percentage(type_array_fin))
 
             error_min_list.append(error_min)
             # Add a small delay to prevent excessive resource usage
@@ -301,9 +320,12 @@ class DistanceAnalyzer:
         
         self.error_min_list = error_min_list
 
-        # Use the final type_list and calculate the clustered percentage_list
-        self.type_list_clustered = type_list_fin
-        self.percentage_list_clustered = self._calculate_bin_percentage(self.type_list_clustered)
+        # Use the final type_array and calculate the clustered percentage_array
+        self.type_array_clustered = type_array_fin
+        self.percentage_array_clustered = self._calculate_bin_percentage(self.type_array_clustered)
+
+        self.percentage_array_list = percentage_array_list
+        # print('pause')
 
     def visualize_learning_curve(self):
         epochs = list(range(1, self.num_epochs + 1))
@@ -318,26 +340,46 @@ class DistanceAnalyzer:
         plt.figure(figsize=(8, 4))
 
         plt.subplot(1, 2, 1)
-        plt.plot(self.bin_list[1:], self.percentage_list, label='Percentage before clustered')
+        plt.plot(self.bin_array[1:], self.percentage_array, label='Percentage before clustered')
         plt.xlabel('Distance (microns)')
         plt.ylabel('Percentage')
         plt.title('Percentage before clustered')
 
-        _, _, y_fit = self._calculate_error(self.percentage_list)
-        plt.plot(self.bin_list[1:], y_fit, label='Negative Exponential Fit')
+        _, y_fit, [a_fit, b_fit, lambd_fit] = self._calculate_error(self.percentage_array)
+        plt.plot(self.bin_array[1:], y_fit, label='Negative Exponential Fit')
         plt.legend()
+        plt.ylim(0,1)
+
+        # y_origin_fit = self._exponential_func(np.arange(0, self.bin_array[-1]), a_fit, b_fit, lambd_fit)
+        # plt.plot(np.arange(0, self.bin_array[-1]), y_origin_fit, label='Negative Exponential Fit for data')
 
         plt.subplot(1, 2, 2)
-        plt.plot(self.bin_list[1:], self.percentage_list_clustered, label='Percentage after clustered')
+        plt.plot(self.bin_array[1:], self.percentage_array_clustered, label='Percentage after clustered')
         plt.xlabel('Distance (microns)')
         plt.ylabel('Percentage')
         plt.title('Percentage after clustered')
 
-        _, _, y_fit = self._calculate_error(self.percentage_list_clustered)
-        plt.plot(self.bin_list[1:], y_fit, label='Negative Exponential Fit')
+        for i in range(self.num_epochs):
+            plt.plot(self.bin_array[1:], self.percentage_array_list[i], label='Epoch {}'.format(i+1), alpha=0.5)
+
+        _, y_fit, [a_fit, b_fit, lambd_fit] = self._calculate_error(self.percentage_array_clustered)
+        plt.plot(self.bin_array[1:], y_fit, label='Negative Exponential Fit')
         plt.legend()
+        plt.ylim(0,1)
+        
+        # y_origin_fit = self._exponential_func(np.arange(0, self.bin_array[-1]), a_fit, b_fit, lambd_fit)
+        # plt.plot(np.arange(0, self.bin_array[-1]), y_origin_fit, label='Negative Exponential Fit for data')
 
-        # plt.show()
 
+    def visualize_single_result(self):
+        plt.figure(figsize=(4, 4))
 
+        plt.plot(self.bin_array[1:], self.percentage_array, label='Percentage before clustered')
+        plt.xlabel('Distance (microns)')
+        plt.ylabel('Percentage')
+        plt.title('Percentage before clustered')
 
+        _, y_fit, [a_fit, b_fit, lambd_fit] = self._calculate_error(self.percentage_array)
+        plt.plot(self.bin_array[1:], y_fit, label='Negative Exponential Fit')
+        plt.legend()
+        # plt.ylim(0,1)

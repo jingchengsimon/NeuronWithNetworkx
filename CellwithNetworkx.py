@@ -1,6 +1,3 @@
-from __future__ import division
-import os
-import logging
 from neuron import gui, h
 from neuron.units import ms, mV
 import numpy as np
@@ -13,7 +10,11 @@ import re
 from math import floor
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numba 
+from numba import jit
+
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+warnings.filterwarnings("ignore", category=numba.NumbaDeprecationWarning)
 
 class CellwithNetworkx:
     def __init__(self, swc_file):
@@ -41,25 +42,28 @@ class CellwithNetworkx:
         self.sectionName_list = None
         self.length_list = None
 
-        self.loc_list = None
-        self.type_list = None
+        self.loc_array = None
+        self.type_array = None
         self.sectionID_synapse_list = None
         self.section_synapse_list = None
         self.segment_synapse_list = None
 
         self.cluster_radius = 2.5 # micron
 
+        self.netcons_list = None
+
         self._create_graph()
-        self._set_graph_order()
+        # self._set_graph_order()
 
     def _create_graph(self):
         all_sections = [i for i in map(list, list(self.complex_cell.soma))] + [i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
 
+        max_string_length = 50
         # Create DataFrame to store section information
         df = pd.DataFrame(columns=['sectionID', 'parentID', 'sectionName', 'parentName', 'length'])
 
         parent_list, parentID_list, parent_index_list, sectionID_list, sectionName_list, length_list = [], [], [], [], [], []
-
+       
         for i, section in enumerate(all_sections):
             Section = section[0].sec
             sectionID = i
@@ -72,8 +76,9 @@ class CellwithNetworkx:
             parent_index_list.append(sectionID)
 
             if i == 0:
-                parentID = 0
                 parentName = 'None'
+                parentID = 0
+                
             else:
                 parent = Section.psection()['morphology']['parent'].sec
                 parentName = parent.psection()['name']
@@ -130,34 +135,40 @@ class CellwithNetworkx:
         for i in range(max_order + 1):
             print(f"Class {i}: {class_dict.get(i, [])}")
 
+    # @jit
     def add_synapses(self, numSyn=1000):
         self.numSyn = numSyn
         sectionID_list, sectionName_list = self.sectionID_list, self.sectionName_list
         synapses_list, netstims_list, netcons_list, randoms_list = [], [], [], []
-        sections_basal_apical = [i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
-        
+    
+        sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
+        sections_apical = [i for i in map(list, list(self.complex_cell.apical))]
+
         rnd = self.rnd
         if rnd.uniform() < 0.85:
             e_syn, tau1, tau2, spike_interval, syn_weight = 0, 0.3, 1.8, 1000/2.5, 0.0016
         else:
             e_syn, tau1, tau2, spike_interval, syn_weight = -86, 1, 8, 1000/15.0, 0.0008
 
-        type_list, loc_list, sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], [], [], []
-
+        sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], []
+        
+        type_array = np.array([''] * numSyn)
+        loc_array = np.zeros(numSyn)
+        
         for i in tqdm(range(numSyn)):
-            Section = rnd.choice(sections_basal_apical)
+            Section = rnd.choice(sections_basal)
             section = Section[0].sec
             sectionName = section.psection()['name']
             sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
             
             section_synapse_list.append(section)
             sectionID_synapse_list.append(sectionID_synapse)
-    
+
             # Use to differentiate between input type A and B
-            type_list.append(rnd.choice(['A', 'B']))
+            # type_array[i] = rnd.choice(['A', 'B'])
 
             loc = section(rnd.uniform()).x
-            loc_list.append(loc)
+            loc_array[i] = loc
 
             segment_synapse = section(loc)
             segment_synapse_list.append(segment_synapse)
@@ -175,14 +186,57 @@ class CellwithNetworkx:
 
             netcons_list.append(h.NetCon(netstims_list[i], synapses_list[i])) # need to rewrite with an assign function
             netcons_list[i].delay, netcons_list[i].weight[0] = 0, syn_weight
-            
+
             time.sleep(0.01)
         
-        self.loc_list, self.type_list, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = loc_list, type_list, sectionID_synapse_list, section_synapse_list, segment_synapse_list
+        self.type_array, self.loc_array, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = type_array, loc_array, sectionID_synapse_list, section_synapse_list, segment_synapse_list
+        self.netcons_list = netcons_list
         self.visualize_simulation()
 
-        return type_list
-    
+    #cannot use jit for this function either
+    # @jit
+    def set_synapse_type(self):
+        # 参数配置
+        rnd = self.rnd
+        type_list = ['A', 'B']  # 类型列表
+        num_clusters_per_type = (5, 11)  # 每种类型的簇数量范围
+        min_points = 10
+        max_points = 100
+        center_type_prob = 1  # 中心点类型概率
+
+        type_array = np.array([''] * self.numSyn, dtype=str)
+
+        num_types = len(type_list)
+        cluster_centers = []
+
+        sectionID_synapse_list = self.sectionID_synapse_list
+        distance_matrix = self.distance_matrix
+
+        for i in range(num_types):
+            num_clusters = np.random.randint(*num_clusters_per_type)
+            cluster_centers_type = np.random.choice(sectionID_synapse_list, num_clusters, replace=False)
+            cluster_centers.extend([(center, type_list[i]) for center in cluster_centers_type])
+
+        for centers, ptype in cluster_centers:
+            idx = np.where(sectionID_synapse_list == centers)[0]
+            type_array[idx] = ptype
+
+        while '' in type_array:
+            for centers, ptype in cluster_centers:
+                num_points = np.random.randint(min_points, max_points + 1)
+                if np.count_nonzero(type_array == '') < self.numSyn / 2:
+                    num_points = np.random.randint(min_points, min(max_points, 31))  # 较少空白时，num_points较小
+                distances = distance_matrix[:, centers]
+                eligible_indices = np.where(type_array == '')[0]
+                nearest_indices = eligible_indices[np.argsort(distances[eligible_indices])[:num_points]]
+                
+                # type_array[nearest_indices] = ptype
+                non_center_types = [t for t in type_list if t != ptype]
+                chosen_type = rnd.choice([ptype] + non_center_types, p=[center_type_prob] + [(1 - center_type_prob) / (num_types - 1)] * (num_types - 1), size=len(nearest_indices))
+                type_array[nearest_indices] = chosen_type
+
+        self.type_array = type_array
+
     def add_clustered_synapses(self, numSyn=1000, k=10, cluster_radius=2.5):
         # self.initialize_cluster_flag = True
 
@@ -197,12 +251,18 @@ class CellwithNetworkx:
         else:
             e_syn, tau1, tau2, spike_interval, syn_weight = -86, 1, 8, 1000/15.0, 0.0008
 
-        loc_list, sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], [], []
-        type_list, type_cluster_list = [], []
+        sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], []
+        type_cluster_list = []
+        type_array = np.array([''] * numSyn)
+        loc_array = np.zeros(numSyn)
         self.numSyn, self.k, self.cluster_radius = numSyn, k, cluster_radius
         numSyn = numSyn - k
 
         section_cluster_list, Section_cluster_list, loc_lower_bound_list, loc_upper_bound_list = [], [], [], []
+        
+        type_list = ['A', 'B']
+        num_types = len(type_list)
+        center_type_prob = 1
 
         for i in tqdm(range(k)):
             
@@ -220,11 +280,11 @@ class CellwithNetworkx:
             sectionID_synapse_list.append(sectionID_synapse)
 
             type = rnd.choice(['A', 'B'])
-            type_list.append(type)
+            type_array[i] = type
             type_cluster_list.append(type)
 
             loc = section(rnd.uniform()).x
-            loc_list.append(loc)
+            loc_array[i] = loc
 
             loc_lower_bound = loc - cluster_radius / section.L
             loc_upper_bound = loc + cluster_radius / section.L
@@ -287,8 +347,10 @@ class CellwithNetworkx:
 
             section_synapse_list.append(section_cluster)
             sectionID_synapse_list.append(sectionID_synapse_cluster)
-            loc_list.append(loc)    
-            type_list.append(type_cluster)
+            loc_array[i+k] = loc   
+
+            non_center_types = [t for t in type_list if t != type_cluster]
+            type_array[i+k] = rnd.choice([type_cluster] + non_center_types, p=[center_type_prob] + [(1 - center_type_prob) / (num_types - 1)] * (num_types - 1))
             
             segment_synapse = section_cluster(loc)
             segment_synapse_list.append(segment_synapse)
@@ -309,38 +371,43 @@ class CellwithNetworkx:
 
             time.sleep(0.01)
 
-        self.loc_list, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = loc_list, sectionID_synapse_list, section_synapse_list, segment_synapse_list
-        self.type_list = type_list
-        self.visualize_simulation()
+        self.loc_array, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = loc_array, sectionID_synapse_list, section_synapse_list, segment_synapse_list
+        self.type_array = type_array
+        # self.visualize_simulation()
 
-        return type_list
+        return type_array
 
+    #cannot use jit for this function
+    # @jit
     def calculate_distance_matrix(self, distance_limit=2000):
-        loc_list, sectionID_synapse_list = self.loc_list, self.sectionID_synapse_list
+        loc_array, sectionID_synapse_list = self.loc_array, self.sectionID_synapse_list
         parentID_list, length_list = self.parentID_list, self.length_list
         
+        length_list = np.array(length_list)
         distance_matrix = np.zeros((self.numSyn, self.numSyn))
         for i in range(self.numSyn):
-            for j in range(self.numSyn):
-                if i < j:
+            for j in range(i + 1, self.numSyn):
                     m = sectionID_synapse_list[i]
                     n = sectionID_synapse_list[j]
 
                     path = self.sp[m][n]
 
-                    distance = 0
-
                     if len(path) > 1:
-                        loc_i = loc_list[i] * (parentID_list[m] == path[1]) + (1-loc_list[i]) * (parentID_list[m] != path[1])
-                        loc_j = loc_list[j] * (parentID_list[n] == path[-2]) + (1-loc_list[j]) * (parentID_list[n] != path[-2])
-                        for k in path:
-                            if k == m:
-                                distance = distance + length_list[k]*loc_i
-                            if k == n:
-                                distance = distance + length_list[k]*loc_j
-                            distance = distance + length_list[k]
+                        loc_i = loc_array[i] * (parentID_list[m] == path[1]) + (1-loc_array[i]) * (parentID_list[m] != path[1])
+                        loc_j = loc_array[j] * (parentID_list[n] == path[-2]) + (1-loc_array[j]) * (parentID_list[n] != path[-2])
+                        
+                        mask_i = np.array(path) == m
+                        mask_j = np.array(path) == n
+
+                        distance = np.sum(length_list[path] * (mask_i * loc_i + mask_j * loc_j))
+                        # for k in path:
+                        #     if k == m:
+                        #         distance = length_list[k]*loc_i
+                        #     if k == n:
+                        #         distance = length_list[k]*loc_j
+                        #     distance = distance + length_list[k]
                     else:
-                        distance = length_list[m] * abs(loc_list[i] - loc_list[j])
+                        distance = length_list[m] * abs(loc_array[i] - loc_array[j])
 
                     distance_matrix[i, j] = distance_matrix[j, i] = distance
 
@@ -364,11 +431,11 @@ class CellwithNetworkx:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
             if self.initialize_cluster_flag == False:
-                segment_type = self.type_list[index - 1]
+                segment_type = self.type_array[index - 1]
                 marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
                 return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
         
-                # if self.type_list[index-1] == 'A':
+                # if self.type_array[index-1] == 'A':
                 #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
                 # else:
                 #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
@@ -386,13 +453,24 @@ class CellwithNetworkx:
         dend_v = h.Vector().record(self.complex_cell.dend[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[0](0.5)._ref_v)
         time_v = h.Vector().record(h._ref_t)
+        
+        spike_times = [h.Vector() for nc in self.netcons_list]
+        for nc, spike_times_vec in zip(self.netcons_list, spike_times):
+            nc.record(spike_times_vec)
 
         h.tstop = 1000
         st = time.time()
         h.run()
         print('complex cell simulation time {:.4f}'.format(time.time()-st))
 
+        # h.finitialize(-65 * mV)
+        # h.continuerun(100 * ms)
+
         # plotting the results
+
+        plt.figure(figsize=(5, 5))
+        for i, spike_times_vec in enumerate(spike_times[4:11]):
+            plt.vlines(spike_times_vec, i + 0.5, i + 1.5)
 
         plt.figure(figsize=(5, 5))
         plt.plot(time_v, soma_v, label='soma')
@@ -405,7 +483,7 @@ class CellwithNetworkx:
         # plt.show()
 
     def visualize_distance(self):
-        type_list, distance_matrix = self.type_list, self.distance_matrix
+        type_array, distance_matrix = self.type_array, self.distance_matrix
         
         distance_list, distance_a_a_list, distance_b_b_list = [], [], []
         for i in range(self.numSyn):
@@ -413,9 +491,9 @@ class CellwithNetworkx:
                 if i < j:
                     if self.initialize_cluster_flag == False:
                         distance_list.append(distance_matrix[i,j])
-                        if type_list[i] == type_list[j] == 'A' :#and distance_matrix[i,j] < distance_limit:
+                        if type_array[i] == type_array[j] == 'A' :#and distance_matrix[i,j] < distance_limit:
                             distance_a_a_list.append(distance_matrix[i,j])
-                        if type_list[i] == type_list[j] == 'B' :#and distance_matrix[i,j] < distance_limit:
+                        if type_array[i] == type_array[j] == 'B' :#and distance_matrix[i,j] < distance_limit:
                             distance_b_b_list.append(distance_matrix[i,j])
                     else:
                         distance_list.append(distance_matrix[i,j])
@@ -432,8 +510,8 @@ class CellwithNetworkx:
         # plt.ylim(0,0.004)
         plt.title('Distance distribution before clustered')
 
-    def set_type_list(self, new_type_list):
-        self.type_list = new_type_list
+    def set_type_array(self, new_type_array):
+        self.type_array = new_type_array
 
     def get_cell(self):
         return self.complex_cell
