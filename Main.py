@@ -17,7 +17,7 @@ bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
 # bin_array = np.array([0, 4.5, 12, 33, 90, 245])
 
 cell1 = CellwithNetworkx(swc_file_path)
-cell1.add_synapses(num_synapses_to_add)
+cell1.add_synapses(numSyn_basal)
 
 plt.show()
 # type_array = cell1.add_clustered_synapses(num_synapses_to_add,k,cluster_radius)
