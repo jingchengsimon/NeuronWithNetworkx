@@ -29,7 +29,12 @@ class CellwithNetworkx:
         self.DiG = None # directed graph
         self.sp = None
         self.distance_matrix = None
-        self.numSyn = None
+
+        self.numSyn_basal_exc = 0
+        self.numSyn_apic_exc = 0
+        self.numSyn_basal_inh = 0
+        self.numSyn_apic_inh = 0
+        self.numSyn_clustered = 0
 
         self.rnd = np.random.RandomState(10)
 
@@ -43,7 +48,7 @@ class CellwithNetworkx:
         self.length_list = None
 
         self.loc_array = None
-        self.type_array = None
+        # self.type_array = None
         self.sectionID_synapse_list = None
         self.section_synapse_list = None
         self.segment_synapse_list = None
@@ -136,8 +141,9 @@ class CellwithNetworkx:
             print(f"Class {i}: {class_dict.get(i, [])}")
 
     # @jit
-    def add_synapses(self, numSyn=1000):
-        self.numSyn = numSyn
+    def add_synapses(self, numSyn_basal_exc, numSyn_apic_exc):
+        self.numSyn_basal_exc, self.numSyn_apic_exc = numSyn_basal_exc, numSyn_apic_exc
+
         sectionID_list, sectionName_list = self.sectionID_list, self.sectionName_list
         synapses_list, netstims_list, netcons_list, randoms_list = [], [], [], []
     
@@ -146,16 +152,16 @@ class CellwithNetworkx:
 
         rnd = self.rnd
         if rnd.uniform() < 0.85:
-            e_syn, tau1, tau2, spike_interval, syn_weight = 0, 0.3, 1.8, 1000/2.5, 0.0016
+            e_syn, tau1, tau2, spike_interval, syn_weight = 0, 0.3, 1.8, 1000/1, 0.0016 # interval=1000(ms)/f
         else:
             e_syn, tau1, tau2, spike_interval, syn_weight = -86, 1, 8, 1000/15.0, 0.0008
 
         sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], []
         
-        type_array = np.array([''] * numSyn)
-        loc_array = np.zeros(numSyn)
+        # type_array = np.array([''] * numSyn)
+        loc_array = np.zeros(numSyn_basal_exc + numSyn_apic_exc)
         
-        for i in tqdm(range(numSyn)):
+        for i in tqdm(range(numSyn_basal_exc)):
             Section = rnd.choice(sections_basal)
             section = Section[0].sec
             sectionName = section.psection()['name']
@@ -189,7 +195,38 @@ class CellwithNetworkx:
 
             time.sleep(0.01)
         
-        self.type_array, self.loc_array, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = type_array, loc_array, sectionID_synapse_list, section_synapse_list, segment_synapse_list
+        for i in tqdm(range(numSyn_apic_exc)):
+            Section = rnd.choice(sections_apical)
+            section = Section[0].sec
+            sectionName = section.psection()['name']
+            sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
+            
+            section_synapse_list.append(section)
+            sectionID_synapse_list.append(sectionID_synapse)
+
+            loc = section(rnd.uniform()).x
+            loc_array[i + numSyn_basal_exc] = loc
+
+            segment_synapse = section(loc)
+            segment_synapse_list.append(segment_synapse)
+            synapses_list.append(h.Exp2Syn(segment_synapse))
+
+            synapses_list[i + numSyn_basal_exc].e, synapses_list[i + numSyn_basal_exc].tau1, synapses_list[i + numSyn_basal_exc].tau2 = e_syn, tau1, tau2
+
+            netstims_list.append(h.NetStim())
+            netstims_list[i + numSyn_basal_exc].interval, netstims_list[i + numSyn_basal_exc].number, netstims_list[i + numSyn_basal_exc].start, netstims_list[i + numSyn_basal_exc].noise = spike_interval, 10, 100, 1
+
+            randoms_list.append(h.Random())
+            randoms_list[i + numSyn_basal_exc].Random123(i + numSyn_basal_exc)
+            randoms_list[i + numSyn_basal_exc].negexp(1)
+            netstims_list[i + numSyn_basal_exc].noiseFromRandom(randoms_list[i + numSyn_basal_exc])
+
+            netcons_list.append(h.NetCon(netstims_list[i + numSyn_basal_exc], synapses_list[i + numSyn_basal_exc])) # need to rewrite with an assign function
+            netcons_list[i + numSyn_basal_exc].delay, netcons_list[i + numSyn_basal_exc].weight[0] = 0, syn_weight
+
+            time.sleep(0.01)
+            
+        self.loc_array, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = loc_array, sectionID_synapse_list, section_synapse_list, segment_synapse_list
         self.netcons_list = netcons_list
         self.visualize_simulation()
 
@@ -469,9 +506,16 @@ class CellwithNetworkx:
         # plotting the results
 
         plt.figure(figsize=(5, 5))
-        for i, spike_times_vec in enumerate(spike_times[4:11]):
-            plt.vlines(spike_times_vec, i + 0.5, i + 1.5)
+        # for i, spike_times_vec in enumerate(spike_times):
+        #     plt.vlines(spike_times_vec, i + 0.5, i + 1.5)
 
+        for i, spike_times_vec in enumerate(spike_times):
+            try:
+                if len(spike_times_vec) > 0:
+                    plt.vlines(spike_times_vec, i + 0.5, i + 1.5)
+            except IndexError:
+                continue  # 跳过这次循环，继续执行下一次循环
+            
         plt.figure(figsize=(5, 5))
         plt.plot(time_v, soma_v, label='soma')
         plt.plot(time_v, dend_v, label='basal')
