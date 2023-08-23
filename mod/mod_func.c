@@ -16,6 +16,7 @@ extern void _Nap_Et2_reg();
 extern void _SK_E2_reg();
 extern void _SKv3_1_reg();
 extern void _epsp_reg();
+extern void _vecevent_reg();
 
 void modl_reg(){
 	//nrn_mswindll_stdio(stdin, stdout, stderr);
@@ -35,6 +36,7 @@ fprintf(stderr," Nap_Et2.mod");
 fprintf(stderr," SK_E2.mod");
 fprintf(stderr," SKv3_1.mod");
 fprintf(stderr," epsp.mod");
+fprintf(stderr," vecevent.mod");
 fprintf(stderr, "\n");
     }
 _CaDynamics_E2_reg();
@@ -50,4 +52,5 @@ _Nap_Et2_reg();
 _SK_E2_reg();
 _SKv3_1_reg();
 _epsp_reg();
+_vecevent_reg();
 }
