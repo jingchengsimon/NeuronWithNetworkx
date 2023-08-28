@@ -37,20 +37,21 @@ class CellwithNetworkx:
         self.numSyn_apic_inh = 0
         self.numSyn_clustered = 0
 
-        self.sections_basal = None
-        self.sections_apical = None
-
         self.rnd = np.random.RandomState(10)
+        if self.rnd.uniform() < 0.85:
+            self.e_syn, self.tau1, self.tau2, self.spike_interval, self.syn_weight = 0, 0.3, 1.8, 1000/1, 0.0016 # interval=1000(ms)/f
+        else:
+            self.e_syn, self.tau1, self.tau2, self.spike_interval, self.syn_weight = -86, 1, 8, 1000/15.0, 0.0008
 
-        self.k = None
-        self.cluster_radius = None
-        self.initialize_cluster_flag = False
+        self.sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
+        self.sections_apical = [i for i in map(list, list(self.complex_cell.apical))]
 
         self.parentID_list = None
         self.sectionID_list = None
         self.sectionName_list = None
         self.length_list = None
 
+        # For background synapses
         self.synapses_list = [] 
         self.netstims_list = []
         self.netcons_list = []
@@ -60,12 +61,30 @@ class CellwithNetworkx:
         self.section_synapse_list = []
         self.segment_synapse_list = []
 
-        self.loc_array = None
+        self.loc_list = []
 
         self.spike_counts_basal_inh = None
         self.spike_counts_apic_inh = None
-
+    
+        self.time_interval = 1/1000 # 1ms, 0.001s
+        self.FREQ_INH = 10  # Hz, /s
         self.DURATION = 1000
+
+        # For clustered synapses
+        self.numSyn_clustered = None
+        self.k = None
+        self.cluster_radius = None
+
+        self.synapses_clustered_list = [] 
+        self.netstims_clustered_list = []
+        self.netcons_clustered_list = []
+        self.randoms_clustered_list = []
+        
+        self.sectionID_synapse_clustered_list = []
+        self.section_synapse_clustered_list = []
+        self.segment_synapse_clustered_list = []
+
+        self.loc_clustered_list = []
 
         self._create_graph()
         # self._set_graph_order()
@@ -156,33 +175,9 @@ class CellwithNetworkx:
         self.numSyn_apic_exc = numSyn_apic_exc
         self.numSyn_basal_inh = numSyn_basal_inh
         self.numSyn_apic_inh = numSyn_apic_inh
-
-        rnd = self.rnd
-        if rnd.uniform() < 0.85:
-            e_syn, tau1, tau2, spike_interval, syn_weight = 0, 0.3, 1.8, 1000/1, 0.0016 # interval=1000(ms)/f
-        else:
-            e_syn, tau1, tau2, spike_interval, syn_weight = -86, 1, 8, 1000/15.0, 0.0008
-
-        self.sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
-        self.sections_apical = [i for i in map(list, list(self.complex_cell.apical))]
-
-        # synapses_list, netstims_list, netcons_list, randoms_list = [], [], [], []
-        # sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], []
         
-        self.loc_array = np.zeros(numSyn_basal_exc + numSyn_apic_exc)
-        
-        # 时间间隔，1ms, 0.001s
-        time_interval = 1/1000
-
-        self.add_synapses(numSyn_basal_exc, 'basal', 'exc',
-                            e_syn, tau1, tau2, 
-                            spike_interval, syn_weight,
-                            time_interval)
-        
-        self.add_synapses(numSyn_apic_exc, 'apical', 'exc',
-                            e_syn, tau1, tau2, 
-                            spike_interval, syn_weight,
-                            time_interval)
+        self.add_synapses(numSyn_basal_exc, 'basal', 'exc')
+        self.add_synapses(numSyn_apic_exc, 'apical', 'exc')
         
         spike_times = [h.Vector() for _ in self.netcons_list]
         for nc, spike_times_vec in zip(self.netcons_list, spike_times):
@@ -200,119 +195,46 @@ class CellwithNetworkx:
                 continue
 
         # 计算每个时间点的平均firing rate (Hz, /s)
-        firing_rates = total_spikes / (np.mean(total_spikes) * time_interval)
-
-        FREQ_INH = 10  # Hz, /s
-
-        firing_rates_inh = firing_rates * FREQ_INH / np.mean(firing_rates)
-
-        lambda_array = firing_rates_inh * time_interval
+        firing_rates = total_spikes / (np.mean(total_spikes) * self.time_interval)
+        firing_rates_inh = firing_rates * self.FREQ_INH / np.mean(firing_rates)
+        lambda_array = firing_rates_inh * self.time_interval
         
         self.spike_counts_basal_inh = np.random.poisson(lambda_array, size=(numSyn_basal_inh, self.DURATION))
         self.spike_counts_apic_inh = np.random.poisson(lambda_array, size=(numSyn_apic_inh, self.DURATION))
 
         # 根据spike_counts生成spike trains  
-        self.add_synapses(numSyn_basal_inh, 'basal', 'inh',                                      
-                          e_syn, tau1, tau2, 
-                          spike_interval, syn_weight, 
-                          time_interval)
-        
-        self.add_synapses(numSyn_apic_inh, 'apical', 'inh',
-                            e_syn, tau1, tau2, 
-                            spike_interval, syn_weight,
-                            time_interval)
-        
-        # for i in tqdm(range(numSyn_basal_inh)):
-        #     counts = spike_counts_basal_inh[i]
-        #     spike_train = np.where(counts >= 1)[0] + np.random.rand(np.sum(counts >= 1)) * time_interval * 1000 
-        #     vs = h.VecStim()    
-        #     vs.play(h.Vector(spike_train))
-        #     netstims_list.append(vs)
-
-        #     Section = rnd.choice(sections_basal)
-        #     section = Section[0].sec
-        #     sectionName = section.psection()['name']
-        #     sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
-            
-        #     section_synapse_list.append(section)
-        #     sectionID_synapse_list.append(sectionID_synapse)
-
-        #     loc = section(rnd.uniform()).x
-        #     loc_array[-1] = loc
-
-        #     segment_synapse = section(loc)
-        #     segment_synapse_list.append(segment_synapse)
-        #     synapses_list.append(h.Exp2Syn(segment_synapse))
-        #     synapses_list[-1].e, synapses_list[-1].tau1, synapses_list[-1].tau2 = e_syn, tau1, tau2
-
-        #     netcons_list.append(h.NetCon(netstims_list[-1], synapses_list[-1])) # need to rewrite with an assign function
-        #     netcons_list[-1].delay, netcons_list[-1].weight[0] = 0, syn_weight
-
-        #     time.sleep(0.01)
-
-        # for i in tqdm(range(numSyn_apic_inh)):
-        #     counts = spike_counts_apic_inh[i]
-        #     spike_train = np.where(counts >= 1)[0] + np.random.rand(np.sum(counts >= 1)) * time_interval * 1000 
-        #     vs = h.VecStim()    
-        #     vs.play(h.Vector(spike_train))
-        #     netstims_list.append(vs)
-
-        #     Section = rnd.choice(sections_apical)
-        #     section = Section[0].sec
-        #     sectionName = section.psection()['name']
-        #     sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
-            
-        #     section_synapse_list.append(section)
-        #     sectionID_synapse_list.append(sectionID_synapse)
-
-        #     loc = section(rnd.uniform()).x
-        #     loc_array[-1] = loc
-
-        #     segment_synapse = section(loc)
-        #     segment_synapse_list.append(segment_synapse)
-        #     synapses_list.append(h.Exp2Syn(segment_synapse))
-        #     synapses_list[-1].e, synapses_list[-1].tau1, synapses_list[-1].tau2 = e_syn, tau1, tau2
-
-        #     netcons_list.append(h.NetCon(netstims_list[-1], synapses_list[-1])) # need to rewrite with an assign function
-        #     netcons_list[-1].delay, netcons_list[-1].weight[0] = 0, syn_weight
-
-        #     time.sleep(0.01)
+        self.add_synapses(numSyn_basal_inh, 'basal', 'inh')        
+        self.add_synapses(numSyn_apic_inh, 'apical', 'inh')
 
         self.visualize_simulation()
 
-    def add_synapses(self, numSyn, region, sim_type,
-                       e_syn, tau1, tau2, 
-                       spike_interval, syn_weight,
-                       time_interval):
-        
+    def add_synapses(self, numSyn, region, sim_type):
         sections = self.sections_basal if region == 'basal' else self.sections_apical
         if sim_type == 'inh':
             spike_counts_inh = self.spike_counts_basal_inh if region == 'basal' else self.spike_counts_apic_inh
-        rnd = self.rnd
-        sectionID_list, sectionName_list = self.sectionID_list, self.sectionName_list
         
         if sim_type == 'exc':
             for _ in tqdm(range(numSyn)):
-                Section = rnd.choice(sections)
+                Section = self.rnd.choice(sections)
                 section = Section[0].sec
                 sectionName = section.psection()['name']
-                sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
+                sectionID_synapse = self.sectionID_list[self.sectionName_list.index(sectionName)]
                 
                 self.section_synapse_list.append(section)
                 self.sectionID_synapse_list.append(sectionID_synapse)
 
-                loc = section(rnd.uniform()).x
-                self.loc_array[-1] = loc
+                loc = section(self.rnd.uniform()).x
+                self.loc_list.append(loc)
 
                 segment_synapse = section(loc)
                 self.segment_synapse_list.append(segment_synapse)
                 self.synapses_list.append(h.Exp2Syn(segment_synapse))
-                self.synapses_list[-1].e = e_syn
-                self.synapses_list[-1].tau1 = tau1
-                self.synapses_list[-1].tau2 = tau2
+                self.synapses_list[-1].e = self.e_syn
+                self.synapses_list[-1].tau1 = self.tau1
+                self.synapses_list[-1].tau2 = self.tau2
 
                 self.netstims_list.append(h.NetStim())
-                self.netstims_list[-1].interval = spike_interval 
+                self.netstims_list[-1].interval = self.spike_interval 
                 self.netstims_list[-1].number = 10
                 self.netstims_list[-1].start = 0
                 self.netstims_list[-1].noise = 1
@@ -324,38 +246,38 @@ class CellwithNetworkx:
 
                 self.netcons_list.append(h.NetCon(self.netstims_list[-1], self.synapses_list[-1])) # need to rewrite with an assign function
                 self.netcons_list[-1].delay = 0 
-                self.netcons_list[-1].weight[0] = syn_weight
+                self.netcons_list[-1].weight[0] = self.syn_weight
 
                 time.sleep(0.01)
         else:
             for i in tqdm(range(numSyn)):
                 counts = spike_counts_inh[i]
-                spike_train = np.where(counts >= 1)[0] + np.random.rand(np.sum(counts >= 1)) * time_interval * 1000 
+                spike_train = np.where(counts>=1)[0] + 1000*self.time_interval*np.random.rand(np.sum(counts>=1)) 
                 vs = h.VecStim()    
                 vs.play(h.Vector(spike_train))
                 self.netstims_list.append(vs)
 
-                Section = rnd.choice(sections)
+                Section = self.rnd.choice(sections)
                 section = Section[0].sec
                 sectionName = section.psection()['name']
-                sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
+                sectionID_synapse = self.sectionID_list[self.sectionName_list.index(sectionName)]
                 
                 self.section_synapse_list.append(section)
                 self.sectionID_synapse_list.append(sectionID_synapse)
 
-                loc = section(rnd.uniform()).x
-                self.loc_array[-1] = loc
+                loc = section(self.rnd.uniform()).x
+                self.loc_list.append(loc)
 
                 segment_synapse = section(loc)
                 self.segment_synapse_list.append(segment_synapse)
                 self.synapses_list.append(h.Exp2Syn(segment_synapse))
-                self.synapses_list[-1].e = e_syn
-                self.synapses_list[-1].tau1 = tau1
-                self.synapses_list[-1].tau2 = tau2
+                self.synapses_list[-1].e = self.e_syn
+                self.synapses_list[-1].tau1 = self.tau1
+                self.synapses_list[-1].tau2 = self.tau2
                 
                 self.netcons_list.append(h.NetCon(self.netstims_list[-1], self.synapses_list[-1])) 
                 self.netcons_list[-1].delay = 0 
-                self.netcons_list[-1].weight[0] = syn_weight
+                self.netcons_list[-1].weight[0] = self.syn_weight
 
                 time.sleep(0.01)
         
@@ -402,88 +324,74 @@ class CellwithNetworkx:
 
         self.type_array = type_array
 
-    def add_clustered_synapses(self, numSyn=1000, k=10, cluster_radius=2.5):
-        # self.initialize_cluster_flag = True
-
-        sectionID_list, sectionName_list = self.sectionID_list, self.sectionName_list
-        synapses_list, netstims_list, netcons_list, randoms_list = [], [], [], []
+    def add_clustered_synapses(self, numSyn_clustered=50, k=5, cluster_radius=2.5):
         sections_basal_apical = [i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
         all_sections = [i for i in map(list, list(self.complex_cell.soma))] + sections_basal_apical
 
-        rnd = self.rnd
-        if rnd.uniform() < 0.85:
-            e_syn, tau1, tau2, spike_interval, syn_weight = 0, 0.3, 1.8, 1000/2.5, 0.0016
-        else:
-            e_syn, tau1, tau2, spike_interval, syn_weight = -86, 1, 8, 1000/15.0, 0.0008
+        self.numSyn_clustered = numSyn_clustered
+        self.k = k
+        self.cluster_radius = cluster_radius
+        numSyn = numSyn_clustered - k
 
-        sectionID_synapse_list, section_synapse_list, segment_synapse_list = [], [], []
-        type_cluster_list = []
-        type_array = np.array([''] * numSyn)
-        loc_array = np.zeros(numSyn)
-        self.numSyn, self.k, self.cluster_radius = numSyn, k, cluster_radius
-        numSyn = numSyn - k
+        section_cluster_list = []
+        Section_cluster_list = []
 
-        section_cluster_list, Section_cluster_list, loc_lower_bound_list, loc_upper_bound_list = [], [], [], []
+        # loc_lower_bound_list = []
+        # loc_upper_bound_list = []
         
-        # type_list = ['A', 'B']
-        num_types = len(type_list)
-        center_type_prob = 1
-
-        for i in tqdm(range(k)):
-            
+        for _ in tqdm(range(k)):
             # could add a new attribute, order, for each section; 
             # and then extract different number of sections from different orders
-            Section = rnd.choice(sections_basal_apical)
+            Section = self.rnd.choice(self.sections_basal+self.sections_apical)
             section = Section[0].sec
 
             Section_cluster_list.append(Section)
             section_cluster_list.append(section)
 
             sectionName = section.psection()['name']
-            sectionID_synapse = sectionID_list[sectionName_list.index(sectionName)]
-            section_synapse_list.append(section)
-            sectionID_synapse_list.append(sectionID_synapse)
+            sectionID_synapse = self.sectionID_list[self.sectionName_list.index(sectionName)]
+            self.section_synapse_clustered_list.append(section)
+            self.sectionID_synapse_clustered_list.append(sectionID_synapse)
 
-            # type = rnd.choice(['A', 'B'])
-            type_array[i] = type
-            type_cluster_list.append(type)
+            loc = section(self.rnd.uniform()).x
+            self.loc_clustered_list.append(loc)
 
-            loc = section(rnd.uniform()).x
-            loc_array[i] = loc
-
-            loc_lower_bound = loc - cluster_radius / section.L
-            loc_upper_bound = loc + cluster_radius / section.L
-            loc_lower_bound_list.append(loc_lower_bound)
-            loc_upper_bound_list.append(loc_upper_bound)
-            
             segment_synapse = section(loc)
-            segment_synapse_list.append(segment_synapse)
-            synapses_list.append(h.Exp2Syn(segment_synapse))
+            self.segment_synapse_clustered_list.append(segment_synapse)
+            self.synapses_clustered_list.append(h.Exp2Syn(segment_synapse))
+            self.synapses_clustered_list[-1].e = self.e_syn
+            self.synapses_clustered_list[-1].tau1 = self.tau1
+            self.synapses_clustered_list[-1].tau2 = self.tau2
+            
+            self.netstims_clustered_list.append(h.NetStim())
+            self.netstims_clustered_list[-1].interval = self.spike_interval 
+            self.netstims_clustered_list[-1].number = 1
+            self.netstims_clustered_list[-1].start = 0
+            self.netstims_clustered_list[-1].noise = 0
+            
+            # randoms_list.append(h.Random())
+            # randoms_list[i].Random123(i)
+            # randoms_list[i].negexp(1)
+            # netstims_list[i].noiseFromRandom(randoms_list[i])
 
-            synapses_list[i].e, synapses_list[i].tau1, synapses_list[i].tau2 = e_syn, tau1, tau2
+            self.netcons_clustered_list.append(h.NetCon(self.netstims_clustered_list[-1], self.synapses_clustered_list[-1])) 
+            self.netcons_clustered_list[-1].delay = 0 
+            self.netcons_clustered_list[-1].weight[0] = self.syn_weight
 
-            netstims_list.append(h.NetStim())
-            netstims_list[i].interval, netstims_list[i].number, netstims_list[i].start, netstims_list[i].noise = spike_interval, 10, 100, 1
-
-            randoms_list.append(h.Random())
-            randoms_list[i].Random123(i)
-            randoms_list[i].negexp(1)
-            netstims_list[i].noiseFromRandom(randoms_list[i])
-
-            netcons_list.append(h.NetCon(netstims_list[i], synapses_list[i])) # need to rewrite with an assign function
-            netcons_list[i].delay, netcons_list[i].weight[0] = 0, syn_weight
-
-        for i in tqdm(range(numSyn)):
-            section_cluster = rnd.choice(section_cluster_list)
+        for _ in tqdm(range(numSyn)):
+            section_cluster = self.rnd.choice(section_cluster_list)
             Section_cluster = Section_cluster_list[section_cluster_list.index(section_cluster)]
-            loc_lower_bound = loc_lower_bound_list[section_cluster_list.index(section_cluster)]
-            loc_upper_bound = loc_upper_bound_list[section_cluster_list.index(section_cluster)]
-            type_cluster = type_cluster_list[section_cluster_list.index(section_cluster)]
+            # loc_lower_bound = loc_lower_bound_list[section_cluster_list.index(section_cluster)]
+            # loc_upper_bound = loc_upper_bound_list[section_cluster_list.index(section_cluster)]
+            # type_cluster = type_cluster_list[section_cluster_list.index(section_cluster)]
 
             sectionName_cluster = section_cluster.psection()['name']
-            sectionID_synapse_cluster = sectionID_list[sectionName_list.index(sectionName_cluster)]
+            sectionID_synapse_cluster = self.sectionID_list[self.sectionName_list.index(sectionName_cluster)]
 
-            loc = rnd.uniform(loc_lower_bound,loc_upper_bound) 
+            # use exponential distribution to generate loc
+            # loc = self.rnd.uniform(loc_lower_bound,loc_upper_bound) 
+            loc = self.rnd.exponential(1/cluster_radius) / section_cluster.L
+            loc = loc if self.rnd.random() < 0.5 else -loc
             if loc > 1 or loc < 0:
                 gap = floor(loc)
                 loc = loc - gap
@@ -491,56 +399,45 @@ class CellwithNetworkx:
                 if gap < 0:
                     if list(self.DiG.predecessors(sectionID_synapse_cluster)) != []:
                         sectionID_synapse_cluster = next(list(self.DiG.predecessors(sectionID_synapse_cluster))[0] for _ in range(abs(gap)))
-                        # while gap < 0:
-                        #     sectionID_synapse_cluster = list(self.DiG.predecessors(sectionID_synapse_cluster))[0]
-                        #     gap += 1
                     else:
                         loc, gap = 0, 0
                 elif gap > 0:
-                    
                     if list(self.DiG.successors(sectionID_synapse_cluster)) != []:
                         sectionID_synapse_cluster = next(list(self.DiG.successors(sectionID_synapse_cluster))[0]for _ in range(gap))
-                        # while gap > 0:
-                        #     sectionID_synapse_cluster = list(self.DiG.successors(sectionID_synapse_cluster))[0]
-                        #     gap -= 1
                     else:
                         loc, gap = 1, 0
 
                 Section_cluster = all_sections[sectionID_synapse_cluster]
-                # Section_cluster = sections_basal_apical[sections_basal_apical.index(Section_cluster) + gap]
                 section_cluster = Section_cluster[0].sec
 
-            section_synapse_list.append(section_cluster)
-            sectionID_synapse_list.append(sectionID_synapse_cluster)
-            loc_array[i+k] = loc   
+            self.section_synapse_clustered_list.append(section_cluster)
+            self.sectionID_synapse_clustered_list.append(sectionID_synapse_cluster)
+            
+            self.loc_clustered_list.append(loc)   
 
-            non_center_types = [t for t in type_list if t != type_cluster]
-            type_array[i+k] = rnd.choice([type_cluster] + non_center_types, p=[center_type_prob] + [(1 - center_type_prob) / (num_types - 1)] * (num_types - 1))
+            # non_center_types = [t for t in type_list if t != type_cluster]
+            # type_array[i+k] = rnd.choice([type_cluster] + non_center_types, p=[center_type_prob] + [(1 - center_type_prob) / (num_types - 1)] * (num_types - 1))
             
             segment_synapse = section_cluster(loc)
-            segment_synapse_list.append(segment_synapse)
-            synapses_list.append(h.Exp2Syn(segment_synapse))
+            self.segment_synapse_clustered_list.append(segment_synapse)
+            self.synapses_clustered_list.append(h.Exp2Syn(segment_synapse))
+            self.synapses_clustered_list[-1].e = self.e_syn
+            self.synapses_clustered_list[-1].tau1 = self.tau1
+            self.synapses_clustered_list[-1].tau2 = self.tau2
+            
+            self.netstims_clustered_list.append(h.NetStim())
+            self.netstims_clustered_list[-1].interval = self.spike_interval 
+            self.netstims_clustered_list[-1].number = 1
+            self.netstims_clustered_list[-1].start = 0
+            self.netstims_clustered_list[-1].noise = 0
 
-            synapses_list[i+k].e, synapses_list[i+k].tau1, synapses_list[i+k].tau2 = e_syn, tau1, tau2
-
-            netstims_list.append(h.NetStim())
-            netstims_list[i+k].interval, netstims_list[i+k].number, netstims_list[i+k].start, netstims_list[i+k].noise = spike_interval, 10, 100, 1
-
-            randoms_list.append(h.Random())
-            randoms_list[i+k].Random123(i+k)
-            randoms_list[i+k].negexp(1)
-            netstims_list[i+k].noiseFromRandom(randoms_list[i+k])
-
-            netcons_list.append(h.NetCon(netstims_list[i+k], synapses_list[i+k])) # need to rewrite with an assign function
-            netcons_list[i+k].delay, netcons_list[i+k].weight[0] = 0, syn_weight
+            self.netcons_clustered_list.append(h.NetCon(self.netstims_clustered_list[-1], self.synapses_clustered_list[-1])) 
+            self.netcons_clustered_list[-1].delay = 0 
+            self.netcons_clustered_list[-1].weight[0] = self.syn_weight
 
             time.sleep(0.01)
 
-        self.loc_array, self.sectionID_synapse_list, self.section_synapse_list, self.segment_synapse_list = loc_array, sectionID_synapse_list, section_synapse_list, segment_synapse_list
-        self.type_array = type_array
-        # self.visualize_simulation()
-
-        # return type_array
+        self.visualize_simulation()
 
     #cannot use jit for this function
     # @jit
@@ -619,8 +516,9 @@ class CellwithNetworkx:
         apic_v = h.Vector().record(self.complex_cell.apic[0](0.5)._ref_v)
         time_v = h.Vector().record(h._ref_t)
         
-        spike_times = [h.Vector() for nc in self.netcons_list]
-        for nc, spike_times_vec in zip(self.netcons_list, spike_times):
+        netcons_list = self.netcons_list + self.netcons_clustered_list
+        spike_times = [h.Vector() for _ in netcons_list]
+        for nc, spike_times_vec in zip(netcons_list, spike_times):
             nc.record(spike_times_vec)
 
         h.tstop = self.DURATION
@@ -646,14 +544,10 @@ class CellwithNetworkx:
             except ValueError:
                 continue
 
-        # 时间间隔，1ms, 0.001s
-        time_interval = 1/1000
-
         # 计算每个时间点的平均firing rate (Hz, /s)
-        firing_rates = total_spikes / (np.mean(total_spikes) * time_interval)
+        firing_rates = total_spikes / (np.mean(total_spikes) * self.time_interval)
 
         # 绘制firing rate曲线
-
         plt.figure(figsize=(5, 5))
         plt.plot(firing_rates,color='blue',label='Backgournd Excitatory Firing Rate')
         plt.legend()
