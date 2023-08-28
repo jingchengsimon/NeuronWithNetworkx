@@ -425,7 +425,7 @@ class CellwithNetworkx:
 
         section_cluster_list, Section_cluster_list, loc_lower_bound_list, loc_upper_bound_list = [], [], [], []
         
-        # type_list = ['A', 'B']
+        type_list = ['A', 'B']
         num_types = len(type_list)
         center_type_prob = 1
 
