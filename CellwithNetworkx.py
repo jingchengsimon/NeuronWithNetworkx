@@ -339,7 +339,12 @@ class CellwithNetworkx:
         # loc_lower_bound_list = []
         # loc_upper_bound_list = []
         
-        for _ in tqdm(range(k)):
+        # type_list = ['A', 'B']
+        # num_types = len(type_list)
+        center_type_prob = 1
+
+        for i in tqdm(range(k)):
+            
             # could add a new attribute, order, for each section; 
             # and then extract different number of sections from different orders
             Section = self.rnd.choice(self.sections_basal+self.sections_apical)
