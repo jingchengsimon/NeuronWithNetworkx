@@ -86,6 +86,9 @@ class CellwithNetworkx:
 
         self.loc_clustered_list = []
 
+        self.type_list = []
+        self.type_array = None
+
         self._create_graph()
         # self._set_graph_order()
 
@@ -206,7 +209,7 @@ class CellwithNetworkx:
         self.add_synapses(numSyn_basal_inh, 'basal', 'inh')        
         self.add_synapses(numSyn_apic_inh, 'apical', 'inh')
 
-        self.visualize_simulation()
+        # self.visualize_simulation()
 
     def add_synapses(self, numSyn, region, sim_type):
         sections = self.sections_basal if region == 'basal' else self.sections_apical
@@ -225,6 +228,8 @@ class CellwithNetworkx:
 
                 loc = section(self.rnd.uniform()).x
                 self.loc_list.append(loc)
+
+                self.type_list.append('A') # bg exc
 
                 segment_synapse = section(loc)
                 self.segment_synapse_list.append(segment_synapse)
@@ -267,6 +272,8 @@ class CellwithNetworkx:
 
                 loc = section(self.rnd.uniform()).x
                 self.loc_list.append(loc)
+
+                self.type_list.append('B') # bg inh
 
                 segment_synapse = section(loc)
                 self.segment_synapse_list.append(segment_synapse)
@@ -333,6 +340,9 @@ class CellwithNetworkx:
         self.cluster_radius = cluster_radius
         numSyn = numSyn_clustered - k
 
+        points_per_cluster = np.random.normal(numSyn_clustered/k-1, 2, k)
+        points_per_clutser = [max(int(round(i)),0) for i in points_per_cluster]
+
         section_cluster_list = []
         Section_cluster_list = []
 
@@ -341,7 +351,7 @@ class CellwithNetworkx:
         
         # type_list = ['A', 'B']
         # num_types = len(type_list)
-        center_type_prob = 1
+        # center_type_prob = 1
 
         for i in tqdm(range(k)):
             
@@ -361,6 +371,8 @@ class CellwithNetworkx:
             loc = section(self.rnd.uniform()).x
             self.loc_clustered_list.append(loc)
 
+            self.type_list.append('C') # clustered exc
+
             segment_synapse = section(loc)
             self.segment_synapse_clustered_list.append(segment_synapse)
             self.synapses_clustered_list.append(h.Exp2Syn(segment_synapse))
@@ -370,7 +382,7 @@ class CellwithNetworkx:
             
             self.netstims_clustered_list.append(h.NetStim())
             self.netstims_clustered_list[-1].interval = self.spike_interval 
-            self.netstims_clustered_list[-1].number = 1
+            self.netstims_clustered_list[-1].number = 10
             self.netstims_clustered_list[-1].start = 0
             self.netstims_clustered_list[-1].noise = 0
             
@@ -384,6 +396,9 @@ class CellwithNetworkx:
             self.netcons_clustered_list[-1].weight[0] = self.syn_weight
 
         for _ in tqdm(range(numSyn)):
+            # available_index_section_cluster_list = [i for i, count in enumerate(points_per_cluster) if count > 0]
+            # available_section_cluster_list = [section_cluster_list[i] for i in available_index_section_cluster_list]
+            # section_cluster = self.rnd.choice(available_section_cluster_list)
             section_cluster = self.rnd.choice(section_cluster_list)
             Section_cluster = Section_cluster_list[section_cluster_list.index(section_cluster)]
             # loc_lower_bound = loc_lower_bound_list[section_cluster_list.index(section_cluster)]
@@ -420,6 +435,8 @@ class CellwithNetworkx:
             
             self.loc_clustered_list.append(loc)   
 
+            self.type_list.append('C') # clustered exc
+
             # non_center_types = [t for t in type_list if t != type_cluster]
             # type_array[i+k] = rnd.choice([type_cluster] + non_center_types, p=[center_type_prob] + [(1 - center_type_prob) / (num_types - 1)] * (num_types - 1))
             
@@ -432,7 +449,7 @@ class CellwithNetworkx:
             
             self.netstims_clustered_list.append(h.NetStim())
             self.netstims_clustered_list[-1].interval = self.spike_interval 
-            self.netstims_clustered_list[-1].number = 1
+            self.netstims_clustered_list[-1].number = 10
             self.netstims_clustered_list[-1].start = 0
             self.netstims_clustered_list[-1].noise = 0
 
@@ -442,7 +459,9 @@ class CellwithNetworkx:
 
             time.sleep(0.01)
 
-        self.visualize_simulation()
+        self.type_array = np.array(self.type_list)
+
+        # self.visualize_simulation()
 
     #cannot use jit for this function
     # @jit
@@ -491,29 +510,24 @@ class CellwithNetworkx:
             'E': 'dc',  # 青色钻石形
             'F': '^m',  # 品红色三角形
             'G': '*y',  # 黄色星型
-            'H': '+k',  # 黑色十字形
+            'H': '+k',  # 黑色十字形 
         }
 
         if index == 0:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
-            if self.initialize_cluster_flag == False:
-                segment_type = self.type_array[index - 1]
-                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
-                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+            # if self.initialize_cluster_flag == False:
+            segment_type = self.type_array[index - 1]
+            marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+            return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+    
+            # else:
+                # return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
         
-                # if self.type_array[index-1] == 'A':
-                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
-                # else:
-                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
-            else:
-                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
-        
-    def visualize_synapses(self,title):
+    def visualize_synapses(self,title='Synapse Distribution'):
         s = h.PlotShape(False)
-        self._recursive_plot(s, self.segment_synapse_list)
+        self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
         plt.title(title)
-        # plt.show()
  
     def visualize_simulation(self):
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
