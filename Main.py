@@ -9,22 +9,25 @@ sys.setrecursionlimit(1000000)
 # Example usage:
 swc_file_path = './modelFile/cell1.asc'
 
-NUMSYN_BASAL_EXC = 10042
-NUMSYN_APIC_EXC = 16070
+NUM_SYN_BASAL_EXC = 10042
+NUM_SYN_APIC_EXC = 16070
 
-NUMSYN_BASAL_INH = 1023
-NUMSYN_APIC_INH = 1637
+NUM_SYN_BASAL_INH = 1023
+NUM_SYN_APIC_INH = 1637
 
-numSyn_clustered, k, cluster_radius = 50, 5, 5
+num_syn_clustered, k, cluster_radius = 50, 5, 5
 
-bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
+# bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
 
 cell1 = CellwithNetworkx(swc_file_path)
-cell1.add_background_synapses(NUMSYN_BASAL_EXC, 
-                              NUMSYN_APIC_EXC, 
-                              NUMSYN_BASAL_INH, 
-                              NUMSYN_APIC_INH)
-cell1.add_clustered_synapses(numSyn_clustered, k, cluster_radius)
+cell1.add_background_synapses(NUM_SYN_BASAL_EXC, 
+                              NUM_SYN_APIC_EXC, 
+                              NUM_SYN_BASAL_INH, 
+                              NUM_SYN_APIC_INH)
+cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius)
+
+# cell1.visualize_synapses
+# ('Background + Clustered Synapses')
 
 plt.show()
 
