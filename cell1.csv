@@ -1,4 +1,4 @@
-sectionID,parentID,sectionName,parentName,length,sectionType
+section_id,parentID,section_name,parentName,length,sectionType
 0,0,L5PCtemplate[0].soma[0],None,23.169408032474415,soma
 1,0,L5PCtemplate[0].dend[0],L5PCtemplate[0].soma[0],24.200878230108255,dend
 2,1,L5PCtemplate[0].dend[1],L5PCtemplate[0].dend[0],15.18219623504249,dend
