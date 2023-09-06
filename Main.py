@@ -29,6 +29,8 @@ cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius)
 # cell1.visualize_synapses
 # ('Background + Clustered Synapses')
 
+cell1.visualize_synapses('Background + Clustered Synapses')
+
 plt.show()
 
 # type_array = cell1.add_clustered_synapses(num_synapses_to_add,k,cluster_radius)
