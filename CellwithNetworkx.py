@@ -38,10 +38,10 @@ class CellwithNetworkx:
         self.num_syn_clustered = 0
 
         self.rnd = np.random.RandomState(10)
-        # if self.rnd.uniform() < 0.85:
-        self.e_syn, self.tau1, self.tau2, self.spike_interval, self.syn_weight = 0, 0.3, 1.8, 1000/1, 0.0016 # interval=1000(ms)/f
-        # else:
-            # self.e_syn, self.tau1, self.tau2, self.spike_interval, self.syn_weight = -86, 1, 8, 1000/15.0, 0.0008
+        self.spike_interval = 1000/1 # interval=1000(ms)/f
+        
+        self.syn_param_exc = [0, 0.3, 1.8, 0.0016]
+        self.syn_param_inh = [-86, 1, 8, 0.0008]
 
         self.sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
         self.sections_apical = [i for i in map(list, list(self.complex_cell.apical))]
@@ -199,9 +199,7 @@ class CellwithNetworkx:
 
     def add_synapses(self, num_syn, region, sim_type):
         sections = self.sections_basal if region == 'basal' else self.sections_apical
-
-        if sim_type == 'inh':
-            spike_counts_inh = self.spike_counts_basal_inh if region == 'basal' else self.spike_counts_apic_inh
+        e_syn, tau1, tau2, syn_weight = self.syn_param_exc if sim_type == 'exc' else self.syn_param_inh
         
         if sim_type == 'exc':
             for _ in tqdm(range(num_syn)):
@@ -210,13 +208,13 @@ class CellwithNetworkx:
                 
                 section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].values[0]
 
-                loc = section(self.rnd.uniform()).x
+                loc = self.rnd.uniform()
                 segment_synapse = section(loc)
                 
                 synapse = h.Exp2Syn(segment_synapse)
-                synapse.e = self.e_syn
-                synapse.tau1 = self.tau1
-                synapse.tau2 = self.tau2
+                synapse.e = e_syn
+                synapse.tau1 = tau1
+                synapse.tau2 = tau2
 
                 netstim = h.NetStim()
                 netstim.interval = self.spike_interval
@@ -235,7 +233,7 @@ class CellwithNetworkx:
 
                 netcon = h.NetCon(netstim, synapse)
                 netcon.delay = 0
-                netcon.weight[0] = self.syn_weight
+                netcon.weight[0] = syn_weight
 
                 data_to_append = {'section_id_synapse': section_id_synapse,
                                             'section_synapse': section,
@@ -251,18 +249,20 @@ class CellwithNetworkx:
             
                 time.sleep(0.01)
         else:
+            spike_counts_inh = self.spike_counts_basal_inh if region == 'basal' else self.spike_counts_apic_inh
+            
             for i in tqdm(range(num_syn)):
                 section = self.rnd.choice(sections)[0].sec
                 section_name = section.psection()['name']
                 section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].values[0]
 
-                loc = section(self.rnd.uniform()).x
+                loc = self.rnd.uniform()
                 segment_synapse = section(loc)
 
                 synapse = h.Exp2Syn(segment_synapse)
-                synapse.e = self.e_syn
-                synapse.tau1 = self.tau1
-                synapse.tau2 = self.tau2
+                synapse.e = e_syn
+                synapse.tau1 = tau1
+                synapse.tau2 = tau2
 
                 counts = spike_counts_inh[i]
                 spike_train = np.where(counts>=1)[0] + 1000*self.time_interval*np.random.rand(np.sum(counts>=1)) 
@@ -271,7 +271,7 @@ class CellwithNetworkx:
 
                 netcon = h.NetCon(netstim, synapse)
                 netcon.delay = 0
-                netcon.weight[0] = self.syn_weight
+                netcon.weight[0] = syn_weight
 
                 data_to_append = {'section_id_synapse': section_id_synapse,
                                             'section_synapse': section,
@@ -287,6 +287,156 @@ class CellwithNetworkx:
                     
                 time.sleep(0.01)
         
+    def add_clustered_synapses(self, num_syn_clustered=50, k=5, cluster_radius=2.5):
+        sections = self.sections_basal + self.sections_apical #[i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
+        all_sections = self.all_sections #[i for i in map(list, list(self.complex_cell.soma))] + sections_basal_apical
+
+        e_syn, tau1, tau2, syn_weight = self.syn_param_exc
+
+        self.num_syn_clustered = num_syn_clustered
+        self.k = k
+        self.cluster_radius = cluster_radius
+        num_syn = num_syn_clustered - k
+
+        # points_per_cluster = np.ceil(np.random.normal(num_syn_clustered/k - 1, 2, k))
+        # points_per_clutser = [max(int(round(i)),0) for i in points_per_cluster]
+
+        section_cluster_list = []
+
+        for _ in tqdm(range(k)):
+            
+            # could add a new attribute, order, for each section; 
+            # and then extract different number of sections from different orders
+            # Section = self.rnd.choice(self.sections_basal+self.sections_apical)
+            section = self.rnd.choice(sections)[0].sec
+            section_cluster_list.append(section)
+
+            section_name = section.psection()['name']
+            section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].values[0]
+            
+            # loc = self.rnd.uniform()
+            loc = 0.5 # for center
+            
+            segment_synapse = section(loc)
+
+            synapse = h.Exp2Syn(segment_synapse)
+            synapse.e = e_syn
+            synapse.tau1 = tau1
+            synapse.tau2 = tau2
+
+            netstim = h.NetStim()
+            netstim.interval = self.spike_interval
+            netstim.number = 1
+            netstim.start = 0
+            netstim.noise = 0
+            
+            netcon = h.NetCon(netstim, synapse)
+            netcon.delay = 0
+            netcon.weight[0] = syn_weight
+
+            data_to_append = {'section_id_synaps': section_id_synapse,
+                                        'section_synapse': section,
+                                        'segment_synapse': segment_synapse,
+                                        'synapse': synapse, 
+                                        'netstim': netstim,
+                                        'random': None,
+                                        'netcon': netcon,
+                                        'loc': loc,
+                                        'type': 'C'}
+                
+            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
+            
+        for _ in tqdm(range(num_syn)):
+            # available_index_section_cluster_list = [i for i, count in enumerate(points_per_cluster) if count > 0]
+            # available_section_cluster_list = [section_cluster_list[i] for i in available_index_section_cluster_list]
+            # section_cluster = self.rnd.choice(available_section_cluster_list)
+            section_cluster = self.rnd.choice(section_cluster_list)
+            section_name_cluster = section_cluster.psection()['name']
+            section_id_synapse_cluster = self.section_df.loc[self.section_df['section_name'] == section_name_cluster, 'section_id'].values[0]
+            
+            # use exponential distribution to generate loc
+            dis_from_center = self.rnd.exponential(1/cluster_radius)
+
+            if self.rnd.random() < 0.5:
+                loc = 0.5 + dis_from_center / section_cluster.L  
+            else:
+                loc = 0.5 - dis_from_center / section_cluster.L
+            
+            start_point = 0.5
+             
+            while loc > 1 or loc < 0:
+                if loc > 1:  
+                    if list(self.DiG.successors(section_id_synapse_cluster)) != []:
+                        dis_from_center = dis_from_center - section_cluster.L * (1 - start_point)
+                        section_id_synapse_cluster = self.rnd.choice(list(self.DiG.successors(section_id_synapse_cluster)))
+                        section_cluster = all_sections[section_id_synapse_cluster][0].sec
+                        loc = dis_from_center / section_cluster.L
+                        start_point = 0
+                    else:
+                        loc = 1
+                elif loc < 0:
+                    if list(self.DiG.predecessors(section_id_synapse_cluster)) != []:
+                        dis_from_center = dis_from_center - section_cluster.L * (start_point - 0)
+                        section_id_synapse_cluster = self.rnd.choice(list(self.DiG.predecessors(section_id_synapse_cluster)))
+                        section_cluster = all_sections[section_id_synapse_cluster][0].sec
+                        loc = 1 - dis_from_center / section_cluster.L
+                        start_point = 1
+                    else:
+                        loc = 0
+                    
+            # if loc > 1 or loc < 0: # (update this)
+            #     gap = floor(loc)
+            #     # loc = loc - gap
+            #     dis_from_center = dis_from_center
+            #     # Find the new section with Networkx (successors or predecessors)
+            #     if gap < 0:
+            #         if list(self.DiG.predecessors(section_id_synapse_cluster)) != []:
+            #             section_id_synapse_cluster = next(list(self.DiG.predecessors(section_id_synapse_cluster))[0] for _ in range(abs(gap)))
+            #         else:
+            #             loc, gap = 0, 0
+            #     elif gap > 0:
+            #         if list(self.DiG.successors(section_id_synapse_cluster)) != []:
+            #             section_id_synapse_cluster = next(list(self.DiG.successors(section_id_synapse_cluster))[0] for _ in range(gap))
+            #         else:
+            #             loc, gap = 1, 0
+
+            #     section_cluster = all_sections[section_id_synapse_cluster][0].sec
+
+            segment_synapse = section_cluster(loc)
+
+            synapse = h.Exp2Syn(segment_synapse)
+            synapse.e = e_syn
+            synapse.tau1 = tau1
+            synapse.tau2 = tau2
+
+            netstim = h.NetStim()
+            netstim.interval = self.spike_interval
+            netstim.number = 1
+            netstim.start = 0
+            netstim.noise = 0
+            
+            netcon = h.NetCon(netstim, synapse)
+            netcon.delay = 0
+            netcon.weight[0] = syn_weight
+
+            data_to_append = {'section_id_synapse': section_id_synapse_cluster,
+                                        'section_synapse': section_cluster,
+                                        'segment_synapse': segment_synapse,
+                                        'synapse': synapse, 
+                                        'netstim': netstim,
+                                        'random': None,
+                                        'netcon': netcon,
+                                        'loc': loc,
+                                        'type': 'C'}
+                
+            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
+            
+            time.sleep(0.01)
+
+        self.type_array = self.section_synapse_df['type'].values
+
+        self.visualize_simulation()
+    
     #cannot use jit for this function either
     # @jit
     def set_synapse_type(self):
@@ -329,126 +479,6 @@ class CellwithNetworkx:
                 type_array[nearest_indices] = chosen_type
 
         self.type_array = type_array
-
-    def add_clustered_synapses(self, num_syn_clustered=50, k=5, cluster_radius=2.5):
-        sections = self.sections_basal + self.sections_apical #[i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
-        all_sections = self.all_sections #[i for i in map(list, list(self.complex_cell.soma))] + sections_basal_apical
-
-        self.num_syn_clustered = num_syn_clustered
-        self.k = k
-        self.cluster_radius = cluster_radius
-        num_syn = num_syn_clustered - k
-
-        # points_per_cluster = np.ceil(np.random.normal(num_syn_clustered/k - 1, 2, k))
-        # points_per_clutser = [max(int(round(i)),0) for i in points_per_cluster]
-
-        section_cluster_list = []
-
-        for _ in tqdm(range(k)):
-            
-            # could add a new attribute, order, for each section; 
-            # and then extract different number of sections from different orders
-            # Section = self.rnd.choice(self.sections_basal+self.sections_apical)
-            section = self.rnd.choice(sections)[0].sec
-            section_cluster_list.append(section)
-
-            section_name = section.psection()['name']
-            section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].values[0]
-            
-            loc = section(self.rnd.uniform()).x
-            
-            segment_synapse = section(loc)
-
-            synapse = h.Exp2Syn(segment_synapse)
-            synapse.e = self.e_syn
-            synapse.tau1 = self.tau1
-            synapse.tau2 = self.tau2
-
-            netstim = h.NetStim()
-            netstim.interval = self.spike_interval
-            netstim.number = 1
-            netstim.start = 0
-            netstim.noise = 0
-            
-            netcon = h.NetCon(netstim, synapse)
-            netcon.delay = 0
-            netcon.weight[0] = self.syn_weight
-
-            data_to_append = {'section_id_synaps': section_id_synapse,
-                                        'section_synapse': section,
-                                        'segment_synapse': segment_synapse,
-                                        'synapse': synapse, 
-                                        'netstim': netstim,
-                                        'random': None,
-                                        'netcon': netcon,
-                                        'loc': loc,
-                                        'type': 'C'}
-                
-            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
-            
-        for _ in tqdm(range(num_syn)):
-            # available_index_section_cluster_list = [i for i, count in enumerate(points_per_cluster) if count > 0]
-            # available_section_cluster_list = [section_cluster_list[i] for i in available_index_section_cluster_list]
-            # section_cluster = self.rnd.choice(available_section_cluster_list)
-            section_cluster = self.rnd.choice(section_cluster_list)
-            section_name_cluster = section_cluster.psection()['name']
-            section_id_synapse_cluster = self.section_df.loc[self.section_df['section_name'] == section_name_cluster, 'section_id'].values[0]
-
-            # use exponential distribution to generate loc
-            loc = self.rnd.exponential(1/cluster_radius) / section_cluster.L
-            loc = loc if self.rnd.random() < 0.5 else - loc
-            if loc > 1 or loc < 0:
-                gap = floor(loc)
-                loc = loc - gap
-                # Find the new section with Networkx (successors or predecessors)
-                if gap < 0:
-                    if list(self.DiG.predecessors(section_id_synapse_cluster)) != []:
-                        section_id_synapse_cluster = next(list(self.DiG.predecessors(section_id_synapse_cluster))[0] for _ in range(abs(gap)))
-                    else:
-                        loc, gap = 0, 0
-                elif gap > 0:
-                    if list(self.DiG.successors(section_id_synapse_cluster)) != []:
-                        section_id_synapse_cluster = next(list(self.DiG.successors(section_id_synapse_cluster))[0] for _ in range(gap))
-                    else:
-                        loc, gap = 1, 0
-
-                Section_cluster = all_sections[section_id_synapse_cluster]
-                section_cluster = Section_cluster[0].sec
-
-            segment_synapse = section_cluster(loc)
-
-            synapse = h.Exp2Syn(segment_synapse)
-            synapse.e = self.e_syn
-            synapse.tau1 = self.tau1
-            synapse.tau2 = self.tau2
-
-            netstim = h.NetStim()
-            netstim.interval = self.spike_interval
-            netstim.number = 1
-            netstim.start = 0
-            netstim.noise = 0
-            
-            netcon = h.NetCon(netstim, synapse)
-            netcon.delay = 0
-            netcon.weight[0] = self.syn_weight
-
-            data_to_append = {'section_id_synapse': section_id_synapse_cluster,
-                                        'section_synapse': section_cluster,
-                                        'segment_synapse': segment_synapse,
-                                        'synapse': synapse, 
-                                        'netstim': netstim,
-                                        'random': None,
-                                        'netcon': netcon,
-                                        'loc': loc,
-                                        'type': 'C'}
-                
-            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
-            
-            time.sleep(0.01)
-
-        self.type_array = self.section_synapse_df['type'].values
-
-        self.visualize_simulation()
 
     #cannot use jit for this function
     # @jit
@@ -503,12 +533,21 @@ class CellwithNetworkx:
         if index == 0:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
-            segment_type = self.type_array[index - 1]
-            marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
-            return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
-
-    def visualize_synapses(self,title='Synapse Distribution'):
+            if self.initialize_cluster_flag == False:
+                segment_type = self.type_array[index - 1]
+                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+        
+                # if self.type_array[index-1] == 'A':
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
+                # else:
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
+            else:
+                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
+        
+    def visualize_synapses(self,title):
         s = h.PlotShape(False)
+        self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
         self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
         plt.title(title)
  
