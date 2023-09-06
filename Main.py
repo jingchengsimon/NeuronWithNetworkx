@@ -26,8 +26,7 @@ cell1.add_background_synapses(NUM_SYN_BASAL_EXC,
                               NUM_SYN_APIC_INH)
 cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius)
 
-# cell1.visualize_synapses
-# ('Background + Clustered Synapses')
+cell1.visualize_synapses('Background + Clustered Synapses')
 
 plt.show()
 
