@@ -195,7 +195,7 @@ class CellwithNetworkx:
         self.add_synapses(num_syn_basal_inh, 'basal', 'inh')        
         self.add_synapses(num_syn_apic_inh, 'apical', 'inh')
 
-        self.visualize_simulation()
+        # self.visualize_simulation()
 
     def add_synapses(self, num_syn, region, sim_type):
         sections = self.sections_basal if region == 'basal' else self.sections_apical
@@ -503,12 +503,21 @@ class CellwithNetworkx:
         if index == 0:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
-            segment_type = self.type_array[index - 1]
-            marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
-            return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
-
-    def visualize_synapses(self,title='Synapse Distribution'):
+            if self.initialize_cluster_flag == False:
+                segment_type = self.type_array[index - 1]
+                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+        
+                # if self.type_array[index-1] == 'A':
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
+                # else:
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
+            else:
+                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
+        
+    def visualize_synapses(self,title):
         s = h.PlotShape(False)
+        self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
         self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
         plt.title(title)
  
