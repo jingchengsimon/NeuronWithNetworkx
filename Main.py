@@ -16,6 +16,7 @@ NUM_SYN_BASAL_INH = 1023
 NUM_SYN_APIC_INH = 1637
 
 num_syn_clustered, k, cluster_radius = 50, 5, 5
+order = 10
 
 # bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
 
@@ -24,9 +25,11 @@ cell1.add_background_synapses(NUM_SYN_BASAL_EXC,
                               NUM_SYN_APIC_EXC, 
                               NUM_SYN_BASAL_INH, 
                               NUM_SYN_APIC_INH)
-cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius)
+cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius, order) # 45 degree
 
-cell1.visualize_synapses('Background + Clustered Synapses')
+# tuning curve
+# input: 0 45 90.. -> cluster
+# cell1.visualize_synapses('Background + Clustered Synapses')
 
 plt.show()
 

@@ -13,14 +13,24 @@ import seaborn as sns
 import numba 
 from numba import jit
 from scipy.ndimage import gaussian_filter1d
+import glob
+import os
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings("ignore", category=numba.NumbaDeprecationWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning) # remember update df.append to pd.concat
 
 class CellwithNetworkx:
     def __init__(self, swc_file):
         h.load_file("import3d.hoc")
-        h.nrn_load_dll('./mod/nrnmech.dll')
+        
+        # changing the loc of folder seems to make loading the relative path wrong
+        current_directory = os.path.dirname(__file__)  # 如果在脚本中使用，__file__是指当前脚本的文件名
+        os.chdir(current_directory)
+        relative_path = './mod/nrnmech.dll'
+        nrnmech_path = os.path.join(current_directory, relative_path)
+        h.nrn_load_dll(nrnmech_path)
+
         h.load_file('./modelFile/L5PCbiophys3.hoc')
         h.load_file('./modelFile/L5PCtemplate.hoc')
         self.complex_cell = h.L5PCtemplate(swc_file)
@@ -37,10 +47,10 @@ class CellwithNetworkx:
         self.num_syn_apic_inh = 0
         self.num_syn_clustered = 0
 
-        self.rnd = np.random.RandomState(10)
-        self.spike_interval = 1000/1 # interval=1000(ms)/f
+        self.rnd = np.random.RandomState(10) 
+        self.spike_interval = 2000/1 # interval=1000(ms)/f
         
-        self.syn_param_exc = [0, 0.3, 1.8, 0.0016]
+        self.syn_param_exc = [0, 0.3, 1.8, 0.0016] # reverse_potential, tau1, tau2, syn_weight
         self.syn_param_inh = [-86, 1, 8, 0.0008]
 
         self.sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
@@ -68,9 +78,9 @@ class CellwithNetworkx:
         self.spike_counts_basal_inh = None
         self.spike_counts_apic_inh = None
     
-        self.time_interval = 1/1000 # 1ms, 0.001s
+        self.time_interval = 1/2000 # 1ms, 0.001s
         self.FREQ_INH = 10  # Hz, /s
-        self.DURATION = 1000
+        self.DURATION = 2000
 
         # For clustered synapses
         self.num_syn_clustered = None
@@ -79,24 +89,25 @@ class CellwithNetworkx:
 
         self.type_array = None
 
+        self.class_dict = None
+
         self._create_graph()
-        # self._set_graph_order()
+        self._set_graph_order()
 
     def _create_graph(self):
         all_sections = self.all_sections
         
         max_string_length = 50
-        # Create DataFrame to store section information
-        # section_df = 
+    
         parent_list, parent_index_list = [], []
        
-        for i, section in enumerate(all_sections):
-            Section = section[0].sec
+        for i, section_segment_list in enumerate(all_sections):
+            section = section_segment_list[0].sec
             section_id = i
-            section_name = Section.psection()['name']
+            section_name = section.psection()['name']
             match = re.search(r'\.(.*?)\[', section_name)
             sectionType = match.group(1)
-            L = Section.psection()['morphology']['L']
+            L = section.psection()['morphology']['L']
 
             parent_list.append(section_name)
             parent_index_list.append(section_id)
@@ -106,7 +117,7 @@ class CellwithNetworkx:
                 parentID = 0
                 
             else:
-                parent = Section.psection()['morphology']['parent'].sec
+                parent = section.psection()['morphology']['parent'].sec
                 parentName = parent.psection()['name']
                 parentID = parent_index_list[parent_list.index(parentName)]
             
@@ -118,11 +129,13 @@ class CellwithNetworkx:
                     'length': L,
                     'sectionType': sectionType}
 
-            self.section_df = self.section_df.append(data_to_append, ignore_index=True)
+            # self.section_df = self.section_df.append(data_to_append, ignore_index=True)
+            self.section_df = pd.concat([self.section_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
             
         self.section_df.to_csv("cell1.csv", encoding='utf-8', index=False)
         Data = open('cell1.csv', "r")
         next(Data, None)  # skip the first line in the input file
+
         Graphtype = nx.Graph()
         DiGraphtype = nx.DiGraph()
         self.G = nx.parse_edgelist(Data, delimiter=',', create_using=Graphtype,
@@ -142,20 +155,20 @@ class CellwithNetworkx:
         order_dict = nx.single_source_shortest_path_length(self.G, 0)
 
         # 创建一个空字典来保存分类结果
-        class_dict = {}
+        self.class_dict = {}
 
         # 将每个点根据距离分类
         for node, order in order_dict.items():
-            if order not in class_dict:
-                class_dict[order] = []
-            class_dict[order].append(node)
+            if order not in self.class_dict:
+                self.class_dict[order] = []
+            self.class_dict[order].append(node)
 
         # 获取最远的点到soma的距离（k值）
         max_order = max(order_dict.values())
 
         # 输出分类结果
-        for i in range(max_order + 1):
-            print(f"Class {i}: {class_dict.get(i, [])}")
+        # for i in range(max_order + 1):
+        #     print(f"Class {i}: {self.class_dict.get(i, [])}")
 
     # @jit
     def add_background_synapses(self, num_syn_basal_exc, num_syn_apic_exc, num_syn_basal_inh, num_syn_apic_inh):
@@ -246,7 +259,8 @@ class CellwithNetworkx:
                                             'type': 'A'}
                     
                 self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
-            
+                # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
+
                 time.sleep(0.01)
         else:
             spike_counts_inh = self.spike_counts_basal_inh if region == 'basal' else self.spike_counts_apic_inh
@@ -284,12 +298,77 @@ class CellwithNetworkx:
                                             'type': 'B'}
                 
                 self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
+                # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
                     
                 time.sleep(0.01)
+
+    def create_vecstim(self):
+        # 定义文件路径
+        spt_path = 'C:/Users/Windows/Desktop/MIMOlab/Codes/AllenAtlas/results/spt_df/'
+
+        # use glob.glob to extract the csv files with the orientation wanted
+        spt_file = glob.glob(spt_path + '*_45.0*.csv')
+
+        spt_unit_lists = []
         
-    def add_clustered_synapses(self, num_syn_clustered=50, k=5, cluster_radius=2.5):
-        sections = self.sections_basal + self.sections_apical #[i for i in map(list, list(self.complex_cell.basal))] + [i for i in map(list, list(self.complex_cell.apical))]
-        all_sections = self.all_sections #[i for i in map(list, list(self.complex_cell.soma))] + sections_basal_apical
+        for file_path in spt_file:
+            spt_df = pd.read_csv(file_path, index_col=None, header=0)
+            spt_grouped_df = spt_df.groupby(['unit_id', 'stimulus_presentation_id'])
+
+            unit_ids = np.sort(spt_df['unit_id'].unique())
+            stimulus_presentation_id = np.sort(spt_df['stimulus_presentation_id'].unique())[0]
+
+            for unit_id in unit_ids:
+                spt_unit = spt_grouped_df.get_group((unit_id, stimulus_presentation_id))
+                spt_unit = (spt_unit['spike_time'].values - spt_unit['spike_time'].values[0]) * 1000
+                # vecstim = h.VecStim()
+                # vecstim.play(spt)
+
+                spt_unit_lists.append(spt_unit)
+
+        k = 5
+        results = []  # 用于存储生成的列表
+        indices = []
+        for _ in range(len(unit_ids)):
+            sampled = self.rnd.choice(k, 3)  # 从范围中选择三个不同的整数
+            results.append(sampled)
+
+        # 查找包含从0到k-1的列表的索引
+        for i in range(k):
+            index_list = [j for j, lst in enumerate(results) if i in lst]
+            indices.append(index_list)
+        
+        indices = [[0,2,3],[0,1,2,3],[3],[1],[0,1]]
+        spt_unit_summed_lists = []
+        vecstim_lists = []
+        for indices_list in indices:
+            spt_unit_summed_list = []
+            for index in indices_list:
+                spt_unit_summed_list.extend(spt_unit_lists[index])
+            spt_unit_summed_list.sort()
+            spt_unit_summed_lists.append(spt_unit_summed_list)
+
+            # spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+            # vecstim = h.VecStim()
+            # vecstim.play(spt_unit_summed_vector)
+            # vecstim_lists.append(vecstim)
+        
+        # for i in range(200):
+        #     spt_unit_summed_list = self.rnd.choice(spt_unit_summed_lists)
+        #     spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+        #     vecstim = h.VecStim()
+        #     vecstim.play(spt_unit_summed_vector)
+        #     vecstim_lists.append(vecstim)
+
+        return spt_unit_summed_lists
+
+    def add_clustered_synapses(self, num_syn_clustered=50, k=5, cluster_radius=2.5, order=1):
+        sections = self.sections_basal + self.sections_apical 
+        all_sections = self.all_sections 
+
+        dist_list = self.class_dict.get(order, [])
+        # sections directly connected to soma
+        sections = [section for i, section in enumerate(all_sections) if i in dist_list]
 
         e_syn, tau1, tau2, syn_weight = self.syn_param_exc
 
@@ -303,12 +382,19 @@ class CellwithNetworkx:
 
         section_cluster_list = []
 
-        for _ in tqdm(range(k)):
+        # vecstim_lists = self.create_vecstim()
+        spt_unit_summed_lists = self.create_vecstim()
+        
+        for i in tqdm(range(k)):
             
             # could add a new attribute, order, for each section; 
             # and then extract different number of sections from different orders
             # Section = self.rnd.choice(self.sections_basal+self.sections_apical)
+
+            # Only select the sections directly connected to soma
+            # section = self.rnd.choice(sections)[0].sec
             section = self.rnd.choice(sections)[0].sec
+
             section_cluster_list.append(section)
 
             section_name = section.psection()['name']
@@ -324,13 +410,19 @@ class CellwithNetworkx:
             synapse.tau1 = tau1
             synapse.tau2 = tau2
 
-            netstim = h.NetStim()
-            netstim.interval = self.spike_interval
-            netstim.number = 1
-            netstim.start = 0
-            netstim.noise = 0
-            
-            netcon = h.NetCon(netstim, synapse)
+            # netstim = h.NetStim()
+            # netstim.interval = self.spike_interval/10
+            # netstim.number = 10
+            # netstim.start = 0
+            # netstim.noise = 0
+
+            spt_unit_summed_list = spt_unit_summed_lists[i]
+            spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+            netstim = h.VecStim()
+            netstim.play(spt_unit_summed_vector)
+            # netstim = vecstim_lists[i]
+
+            netcon = h.NetCon(netstim, synapse) # netstim is always from the same unit with diff orientation
             netcon.delay = 0
             netcon.weight[0] = syn_weight
 
@@ -344,13 +436,15 @@ class CellwithNetworkx:
                                         'loc': loc,
                                         'type': 'C'}
                 
-            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
+            self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)    
+            # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
             
         for _ in tqdm(range(num_syn)):
             # available_index_section_cluster_list = [i for i, count in enumerate(points_per_cluster) if count > 0]
             # available_section_cluster_list = [section_cluster_list[i] for i in available_index_section_cluster_list]
             # section_cluster = self.rnd.choice(available_section_cluster_list)
             section_cluster = self.rnd.choice(section_cluster_list)
+            section_cluster_index = section_cluster_list.index(section_cluster)
             section_name_cluster = section_cluster.psection()['name']
             section_id_synapse_cluster = self.section_df.loc[self.section_df['section_name'] == section_name_cluster, 'section_id'].values[0]
             
@@ -409,12 +503,18 @@ class CellwithNetworkx:
             synapse.tau1 = tau1
             synapse.tau2 = tau2
 
-            netstim = h.NetStim()
-            netstim.interval = self.spike_interval
-            netstim.number = 1
-            netstim.start = 0
-            netstim.noise = 0
-            
+            # netstim = h.NetStim()
+            # netstim.interval = self.spike_interval/10
+            # netstim.number = 10
+            # netstim.start = 0
+            # netstim.noise = 0
+
+            spt_unit_summed_list = spt_unit_summed_lists[section_cluster_index]
+            spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+            netstim = h.VecStim()
+            netstim.play(spt_unit_summed_vector)
+            # netstim = vecstim_lists[section_cluster_index]
+
             netcon = h.NetCon(netstim, synapse)
             netcon.delay = 0
             netcon.weight[0] = syn_weight
@@ -430,6 +530,7 @@ class CellwithNetworkx:
                                         'type': 'C'}
                 
             self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
+            # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
             
             time.sleep(0.01)
 
@@ -569,7 +670,7 @@ class CellwithNetworkx:
 
         # plotting the results
         plt.figure(figsize=(5, 5))
-        for i, spike_times_vec in enumerate(spike_times):
+        for i, spike_times_vec in enumerate(spike_times[-50:]):
             try:
                 if len(spike_times_vec) > 0:
                     plt.vlines(spike_times_vec, i + 0.5, i + 1.5)
