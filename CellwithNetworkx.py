@@ -544,6 +544,17 @@ class CellwithNetworkx:
                 #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
             else:
                 return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
+            if self.initialize_cluster_flag == False:
+                segment_type = self.type_array[index - 1]
+                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+        
+                # if self.type_array[index-1] == 'A':
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
+                # else:
+                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
+            else:
+                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
         
     def visualize_synapses(self,title):
         s = h.PlotShape(False)
