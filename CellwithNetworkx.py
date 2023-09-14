@@ -533,33 +533,21 @@ class CellwithNetworkx:
         if index == 0:
             return self._recursive_plot(s.plot(plt), seg_list, index+1)
         elif index <= len(seg_list):
-            if self.initialize_cluster_flag == False:
-                segment_type = self.type_array[index - 1]
-                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
-                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
+            # if self.initialize_cluster_flag == False:
+            segment_type = self.type_array[index - 1]
+            marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
+            return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
         
                 # if self.type_array[index-1] == 'A':
                 #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
                 # else:
                 #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
-            else:
-                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
-            if self.initialize_cluster_flag == False:
-                segment_type = self.type_array[index - 1]
-                marker = markers.get(segment_type, 'or')  # 如果类型不在字典中，默认使用'or'作为标记
-                return self._recursive_plot(s.mark(seg_list[index - 1], marker), seg_list, index + 1)
-        
-                # if self.type_array[index-1] == 'A':
-                #     return self._recursive_plot(s.mark(seg_list[index-1],'or'), seg_list, index+1)
-                # else:
-                #     return self._recursive_plot(s.mark(seg_list[index-1],'xb'), seg_list, index+1)
-            else:
-                return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
+            # else:
+            #     return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
         
     def visualize_synapses(self,title):
         s = h.PlotShape(False)
-        self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
-        self._recursive_plot(s, self.segment_synapse_list + self.segment_synapse_clustered_list)
+        self._recursive_plot(s, self.section_synapse_df['segment_synapse'].values)
         plt.title(title)
  
     def visualize_simulation(self):
