@@ -15,6 +15,7 @@ from numba import jit
 from scipy.ndimage import gaussian_filter1d
 import glob
 import os
+from scipy.optimize import curve_fit
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings("ignore", category=numba.NumbaDeprecationWarning)
@@ -72,7 +73,8 @@ class CellwithNetworkx:
                                                 'random',
                                                 'netcon',
                                                 'loc',
-                                                'type'])
+                                                'type',
+                                                'cluster_id']) # for adding vecstim of different orientation
                                         
     
         self.spike_counts_basal_inh = None
@@ -86,6 +88,12 @@ class CellwithNetworkx:
         self.num_syn_clustered = None
         self.k = None
         self.cluster_radius = None
+        self.order = None
+        self.pref_ori_dg = None
+
+        # For tuning curve
+        self.num_spikes_list = []
+        self.pref_ori_dg = None 
 
         self.type_array = None
 
@@ -208,7 +216,7 @@ class CellwithNetworkx:
         self.add_synapses(num_syn_basal_inh, 'basal', 'inh')        
         self.add_synapses(num_syn_apic_inh, 'apical', 'inh')
 
-        self.visualize_simulation()
+        self.visualize_simulation(0)
 
     def add_synapses(self, num_syn, region, sim_type):
         sections = self.sections_basal if region == 'basal' else self.sections_apical
@@ -256,7 +264,8 @@ class CellwithNetworkx:
                                             'random': random,
                                             'netcon': netcon,
                                             'loc': loc,
-                                            'type': 'A'}
+                                            'type': 'A',
+                                            'cluster_id': -1}
                     
                 self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
                 # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
@@ -295,77 +304,19 @@ class CellwithNetworkx:
                                             'random': None,
                                             'netcon': netcon,
                                             'loc': loc,
-                                            'type': 'B'}
+                                            'type': 'B',
+                                            'cluster_id': -1}
                 
                 self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
                 # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
                     
                 time.sleep(0.01)
 
-    def create_vecstim(self):
-        # 定义文件路径
-        spt_path = 'C:/Users/Windows/Desktop/MIMOlab/Codes/AllenAtlas/results/spt_df/'
-
-        # use glob.glob to extract the csv files with the orientation wanted
-        spt_file = glob.glob(spt_path + '*_45.0*.csv')
-
-        spt_unit_lists = []
-        
-        for file_path in spt_file:
-            spt_df = pd.read_csv(file_path, index_col=None, header=0)
-            spt_grouped_df = spt_df.groupby(['unit_id', 'stimulus_presentation_id'])
-
-            unit_ids = np.sort(spt_df['unit_id'].unique())
-            stimulus_presentation_id = np.sort(spt_df['stimulus_presentation_id'].unique())[0]
-
-            for unit_id in unit_ids:
-                spt_unit = spt_grouped_df.get_group((unit_id, stimulus_presentation_id))
-                spt_unit = (spt_unit['spike_time'].values - spt_unit['spike_time'].values[0]) * 1000
-                # vecstim = h.VecStim()
-                # vecstim.play(spt)
-
-                spt_unit_lists.append(spt_unit)
-
-        k = 5
-        results = []  # 用于存储生成的列表
-        indices = []
-        for _ in range(len(unit_ids)):
-            sampled = self.rnd.choice(k, 3)  # 从范围中选择三个不同的整数
-            results.append(sampled)
-
-        # 查找包含从0到k-1的列表的索引
-        for i in range(k):
-            index_list = [j for j, lst in enumerate(results) if i in lst]
-            indices.append(index_list)
-        
-        indices = [[0,2,3],[0,1,2,3],[3],[1],[0,1]]
-        spt_unit_summed_lists = []
-        vecstim_lists = []
-        for indices_list in indices:
-            spt_unit_summed_list = []
-            for index in indices_list:
-                spt_unit_summed_list.extend(spt_unit_lists[index])
-            spt_unit_summed_list.sort()
-            spt_unit_summed_lists.append(spt_unit_summed_list)
-
-            # spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
-            # vecstim = h.VecStim()
-            # vecstim.play(spt_unit_summed_vector)
-            # vecstim_lists.append(vecstim)
-        
-        # for i in range(200):
-        #     spt_unit_summed_list = self.rnd.choice(spt_unit_summed_lists)
-        #     spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
-        #     vecstim = h.VecStim()
-        #     vecstim.play(spt_unit_summed_vector)
-        #     vecstim_lists.append(vecstim)
-
-        return spt_unit_summed_lists
-
     def add_clustered_synapses(self, num_syn_clustered=50, k=5, cluster_radius=2.5, order=1):
         sections = self.sections_basal + self.sections_apical 
         all_sections = self.all_sections 
 
+        self.order = order
         dist_list = self.class_dict.get(order, [])
         # sections directly connected to soma
         sections = [section for i, section in enumerate(all_sections) if i in dist_list]
@@ -382,11 +333,8 @@ class CellwithNetworkx:
 
         section_cluster_list = []
 
-        # vecstim_lists = self.create_vecstim()
-        spt_unit_summed_lists = self.create_vecstim()
-        
         for i in tqdm(range(k)):
-            
+                
             # could add a new attribute, order, for each section; 
             # and then extract different number of sections from different orders
             # Section = self.rnd.choice(self.sections_basal+self.sections_apical)
@@ -416,25 +364,25 @@ class CellwithNetworkx:
             # netstim.start = 0
             # netstim.noise = 0
 
-            spt_unit_summed_list = spt_unit_summed_lists[i]
-            spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
-            netstim = h.VecStim()
-            netstim.play(spt_unit_summed_vector)
-            # netstim = vecstim_lists[i]
+            # spt_unit_summed_list = spt_unit_summed_lists[i]
+            # spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+            # netstim = h.VecStim()
+            # netstim.play(spt_unit_summed_vector)
 
-            netcon = h.NetCon(netstim, synapse) # netstim is always from the same unit with diff orientation
-            netcon.delay = 0
-            netcon.weight[0] = syn_weight
+            # netcon = h.NetCon(netstim, synapse) # netstim is always from the same unit with diff orientation
+            # netcon.delay = 0
+            # netcon.weight[0] = syn_weight
 
-            data_to_append = {'section_id_synaps': section_id_synapse,
+            data_to_append = {'section_id_synapse': section_id_synapse,
                                         'section_synapse': section,
                                         'segment_synapse': segment_synapse,
                                         'synapse': synapse, 
-                                        'netstim': netstim,
+                                        'netstim': None,
                                         'random': None,
-                                        'netcon': netcon,
+                                        'netcon': None,
                                         'loc': loc,
-                                        'type': 'C'}
+                                        'type': 'C',
+                                        'cluster_id': i}
                 
             self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)    
             # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
@@ -457,7 +405,7 @@ class CellwithNetworkx:
                 loc = 0.5 - dis_from_center / section_cluster.L
             
             start_point = 0.5
-             
+            
             while loc > 1 or loc < 0:
                 if loc > 1:  
                     if list(self.DiG.successors(section_id_synapse_cluster)) != []:
@@ -478,24 +426,6 @@ class CellwithNetworkx:
                     else:
                         loc = 0
                     
-            # if loc > 1 or loc < 0: # (update this)
-            #     gap = floor(loc)
-            #     # loc = loc - gap
-            #     dis_from_center = dis_from_center
-            #     # Find the new section with Networkx (successors or predecessors)
-            #     if gap < 0:
-            #         if list(self.DiG.predecessors(section_id_synapse_cluster)) != []:
-            #             section_id_synapse_cluster = next(list(self.DiG.predecessors(section_id_synapse_cluster))[0] for _ in range(abs(gap)))
-            #         else:
-            #             loc, gap = 0, 0
-            #     elif gap > 0:
-            #         if list(self.DiG.successors(section_id_synapse_cluster)) != []:
-            #             section_id_synapse_cluster = next(list(self.DiG.successors(section_id_synapse_cluster))[0] for _ in range(gap))
-            #         else:
-            #             loc, gap = 1, 0
-
-            #     section_cluster = all_sections[section_id_synapse_cluster][0].sec
-
             segment_synapse = section_cluster(loc)
 
             synapse = h.Exp2Syn(segment_synapse)
@@ -509,25 +439,25 @@ class CellwithNetworkx:
             # netstim.start = 0
             # netstim.noise = 0
 
-            spt_unit_summed_list = spt_unit_summed_lists[section_cluster_index]
-            spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
-            netstim = h.VecStim()
-            netstim.play(spt_unit_summed_vector)
-            # netstim = vecstim_lists[section_cluster_index]
+            # spt_unit_summed_list = spt_unit_summed_lists[section_cluster_index]
+            # spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+            # netstim = h.VecStim()
+            # netstim.play(spt_unit_summed_vector)
 
-            netcon = h.NetCon(netstim, synapse)
-            netcon.delay = 0
-            netcon.weight[0] = syn_weight
+            # netcon = h.NetCon(netstim, synapse)
+            # netcon.delay = 0
+            # netcon.weight[0] = syn_weight
 
             data_to_append = {'section_id_synapse': section_id_synapse_cluster,
                                         'section_synapse': section_cluster,
                                         'segment_synapse': segment_synapse,
                                         'synapse': synapse, 
-                                        'netstim': netstim,
+                                        'netstim': None,
                                         'random': None,
-                                        'netcon': netcon,
+                                        'netcon': None,
                                         'loc': loc,
-                                        'type': 'C'}
+                                        'type': 'C',
+                                        'cluster_id': section_cluster_index}
                 
             self.section_synapse_df = self.section_synapse_df.append(data_to_append, ignore_index=True)
             # self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame(data_to_append, index=[0])], ignore_index=True)
@@ -536,8 +466,116 @@ class CellwithNetworkx:
 
         self.type_array = self.section_synapse_df['type'].values
 
-        self.visualize_simulation()
+        self.add_clustered_inputs(syn_weight, k)
+
+    def add_clustered_inputs(self, syn_weight, k):
+
+        ori_dg_list = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+        section_synapse_clustered_df = self.section_synapse_df[self.section_synapse_df['type'] == 'C']
+
+        spt_path = 'C:/Users/Windows/Desktop/MIMOlab/Codes/AllenAtlas/results/spt_df'
+        pref_ori_dg = 0
+        self.pref_ori_dg = pref_ori_dg
+        session_id = 732592105
+        ori_dg = 0.0
+
+        # for calculate the OSI
+        self.pref_ori_dg = pref_ori_dg
+
+        spt_file = glob.glob(spt_path + f'/{pref_ori_dg}_{session_id}/spt_{ori_dg}.csv')
+        file_path = spt_file[0] # usually only one file
+        spt_df = pd.read_csv(file_path, index_col=None, header=0)
+        
+        # notice that for diff orientation, stim_id is diff, which means the number of units fired
+        # at each stim_id is diff, so unit_ids is not always the same for each spt_file
+        # but we need the presynaptic units always the same
+        # unit_ids = spt_df[spt_df['stimulus_presentation_id'] == max_stim_id]['unit_id'].unique()
+        unit_ids = np.sort(spt_df['unit_id'].unique())
+
+        results = []  # 用于存储生成的列表
+        indices = []
+        for _ in range(len(unit_ids)):
+            sampled = self.rnd.choice(k, 3, replace=False)  # 从范围中选择三个不同的整数 without replacement
+            results.append(sampled)
+
+        # 查找包含从0到k-1的列表的索引
+        for i in range(k):
+            index_list = [j for j, lst in enumerate(results) if i in lst]
+            indices.append(index_list)
+
+        for ori_dg in ori_dg_list:    
+            spt_unit_summed_lists = self._create_vecstim(ori_dg, unit_ids, indices, k)
+
+            for i in range(self.num_syn_clustered):
+                # need this change updated to the global dataframe
+                section = section_synapse_clustered_df.iloc[i]
+                
+                spt_unit_summed_list = spt_unit_summed_lists[section['cluster_id']]
+                spt_unit_summed_vector = h.Vector(spt_unit_summed_list)
+                netstim = h.VecStim()
+                netstim.play(spt_unit_summed_vector)
+
+                ## turn off the old netcons
+                if section['netcon'] is not None:
+                    section['netcon'].weight[0] = 0
+
+                synapse = section['synapse']
+                netcon = h.NetCon(netstim, synapse) # netstim is always from the same unit with diff orientation
+                netcon.delay = 0
+                netcon.weight[0] = syn_weight
+                
+                self.section_synapse_df.at[section.name, 'netstim'] = netstim
+                self.section_synapse_df.at[section.name, 'netcon'] = netcon
+
+            self.visualize_simulation(1)
     
+    def _create_vecstim(self, ori_dg, unit_ids, indices, k=5):
+        # define the path of all csv files for spike trains
+        spt_path = 'C:/Users/Windows/Desktop/MIMOlab/Codes/AllenAtlas/results/spt_df'
+
+        # use glob.glob to extract the csv files with the orientation wanted
+        # read every file in this folder
+        pref_ori_dg = 0
+        session_id = 732592105
+        ori_dg = ori_dg
+
+        spt_file = glob.glob(spt_path + f'/{pref_ori_dg}_{session_id}/spt_{ori_dg}.csv')
+
+        # folder_path = f'/{pref_ori_dg}_{session_id}/spt_{ori_dg}.csv'
+        # spt_file = os.path.join(spt_path, folder_path)
+
+        # for file_path in spt_file:
+        file_path = spt_file[0] # usually only one file
+        spt_df = pd.read_csv(file_path, index_col=None, header=0)
+        
+        ## Following part will differ across different ori_dg
+        
+        # not all units spike at each stimulus presentation, 
+        # we need choose the stim_id with the max number of units 
+        spt_grouped_df = spt_df.groupby(['unit_id', 'stimulus_presentation_id'])
+        max_stim_id = spt_df.groupby('stimulus_presentation_id')['unit_id'].nunique().idxmax()
+        
+        spt_unit_lists = []
+        for unit_id in unit_ids:
+            try:
+                spt_unit = spt_grouped_df.get_group((unit_id, max_stim_id))
+                spt_unit = (spt_unit['spike_time'].values - spt_unit['spike_time'].values[0]) * 1000
+            except KeyError:
+                # for units not fired, add list of 0
+                spt_unit = np.array([0.])
+
+            spt_unit_lists.append(spt_unit)
+
+        spt_unit_summed_lists = []
+        for index_list in indices:
+            spt_unit_summed_list = []
+            for index in index_list:
+                spt_unit_summed_list.extend(spt_unit_lists[index])
+            spt_unit_summed_list.sort()
+            spt_unit_summed_lists.append(spt_unit_summed_list)
+
+        return spt_unit_summed_lists
+
     #cannot use jit for this function either
     # @jit
     def set_synapse_type(self):
@@ -646,12 +684,12 @@ class CellwithNetworkx:
             # else:
             #     return self._recursive_plot(s.mark(seg_list[index-1],'xr'), seg_list, index+1)
         
-    def visualize_synapses(self,title):
+    def visualize_synapses(self, title):
         s = h.PlotShape(False)
         self._recursive_plot(s, self.section_synapse_df['segment_synapse'].values)
         plt.title(title)
  
-    def visualize_simulation(self):
+    def visualize_simulation(self, count_spike_flag=0):
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
         dend_v = h.Vector().record(self.complex_cell.dend[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[0](0.5)._ref_v)
@@ -689,12 +727,12 @@ class CellwithNetworkx:
         firing_rates = total_spikes / (np.mean(total_spikes) * self.time_interval)
 
         # 绘制firing rate曲线
-        plt.figure(figsize=(5, 5))
-        plt.plot(firing_rates,color='blue',label='Backgournd Excitatory Firing Rate')
-        plt.legend()
-        plt.xlabel('Time(ms)')
-        plt.ylabel('Firing Rate(Hz)')
-        plt.title('Firing Rate Curve')
+        # plt.figure(figsize=(5, 5))
+        # plt.plot(firing_rates,color='blue',label='Backgournd Excitatory Firing Rate')
+        # plt.legend()
+        # plt.xlabel('Time(ms)')
+        # plt.ylabel('Firing Rate(Hz)')
+        # plt.title('Firing Rate Curve')
 
         # 使用高斯核进行卷积，得到平滑的firing rate曲线 (don't consider currently)
         # sigma = 1  # 高斯核的标准差
@@ -714,6 +752,95 @@ class CellwithNetworkx:
         plt.legend()
         plt.xlabel('Time (ms)')
         plt.ylabel('Voltage (mV)')
+
+        # threshold to define spikes
+        threshold = 0
+
+        num_spikes = self.count_spikes(soma_v, threshold)
+        print("Number of spikes:", num_spikes)
+        
+        if count_spike_flag == 1:
+            self.num_spikes_list.append(num_spikes)
+
+    def count_spikes(self, soma_voltage, threshold=0):
+        spike_count = 0
+        is_spiking = False
+
+        for voltage in soma_voltage:
+            if voltage > threshold and not is_spiking:
+                is_spiking = True
+                spike_count += 1
+            elif voltage <= threshold:
+                is_spiking = False
+
+        return spike_count
+
+    def gaussian_function(self, x, amplitude, mean, stddev):
+        return amplitude * np.exp(-((x - mean) / stddev) ** 2 / 2)
+
+    def fit_gaussian(self, x, y):
+        popt, _ = curve_fit(self.gaussian_function, x, y, p0=[1, np.mean(x), np.std(x)])
+        return popt
+
+    def calculate_cirvar(self, num_spikes, ori_dg_list):
+        # 将角度转换为弧度
+        theta_radians = np.deg2rad(ori_dg_list)
+
+        # 计算 exp(2i * theta)
+        complex_exp = np.exp(2j * theta_radians)
+
+        # 计算加权和
+        weighted_sum = np.sum(num_spikes * complex_exp) / np.sum(num_spikes)
+
+        # 取模
+        cirvar = round(np.abs(weighted_sum), 4)
+
+        return cirvar
+
+    def calculate_osi(self, num_spikes, ori_dg_list):
+        
+        r_pref = num_spikes[ori_dg_list.index(pref_ori_dg)] + num_spikes[ori_dg_list.index((pref_ori_dg + 180) % 360)]
+        r_ortho = num_spikes[ori_dg_list.index((pref_ori_dg + 90)) % 360] + num_spikes[ori_dg_list.index((pref_ori_dg + 270) % 360)]
+
+        osi = round((r_pref - r_ortho) / (r_pref + r_ortho), 4)
+        
+        return osi
+
+    def visualize_tuning_curve(self):
+
+        ori_dg_list = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+        num_spikes = self.num_spikes_list
+        pref_ori_dg = self.pref_ori_dg
+
+        print('num_spikes: ', num_spikes)
+        print('OSI of the model neuron: ', self.calculate_osi(num_spikes, ori_dg_list))
+        print('cirvar: ', self.calculate_cirvar(num_spikes, ori_dg_list))
+
+        x_values = np.array(ori_dg_list)
+        y_values = np.array(num_spikes)
+
+        # Fit Gaussian curve
+        # params = self.fit_gaussian(x_values, y_values)
+
+        # Plot original data points
+        plt.figure(figsize=(5, 5))
+        plt.plot(x_values, y_values, label='Data Points')
+
+        # plt.scatter(x_values, y_values, label='Data Points')
+
+        # Plot Gaussian curve using the fitted parameters
+        # curve_x = np.linspace(min(x_values), max(x_values), 100)
+        # curve_y = self.gaussian_function(curve_x, *params)
+        # plt.plot(curve_x, curve_y, label='Gaussian Fit', color='red')
+
+        # # Mark the data points on the graph
+        # for i, txt in enumerate(num_spikes):
+        #     plt.annotate(txt, (x_values[i], y_values[i]), textcoords="offset points", xytext=(0, 5), ha='center')
+
+        # Display the plot
+        plt.xlabel('Orientation (degrees)')
+        plt.ylabel('Number of Spikes')
+        plt.legend()  
 
     def visualize_distance(self):
         type_array, distance_matrix = self.section_synapse_df['type'].values, self.distance_matrix
