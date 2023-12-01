@@ -1,7 +1,5 @@
-from CellwithNetworkx import *
-from DistanceAnalyzer import *
-import matplotlib.pyplot as plt
-
+from cell_with_networkx import *
+# from distanceAnalyzer import *
 import sys 
 sys.setrecursionlimit(1000000)
 
@@ -15,31 +13,32 @@ NUM_SYN_BASAL_INH = 1023
 NUM_SYN_APIC_INH = 1637
 # Is it possible to save the above part so we don't need to run the bg part every time
 
-num_syn_clustered, k, cluster_radius = 50, 5, 5
-order = 5
-
-# bin_array = np.array([0, 2.7, 4.5, 7.4, 12, 20, 33, 55, 90, 148, 245])
-
-cell1 = CellwithNetworkx(swc_file_path)
-cell1.add_background_synapses(NUM_SYN_BASAL_EXC, 
-                              NUM_SYN_APIC_EXC, 
-                              NUM_SYN_BASAL_INH, 
-                              NUM_SYN_APIC_INH)
-cell1.add_clustered_synapses(num_syn_clustered, k, cluster_radius, order) 
-cell1.visualize_tuning_curve()
+num_clusters, cluster_radius, distance_to_soma, num_conn_per_preunit = 1, 5, 3, 3
 
 # 创建保存文件夹
 pref_ori_dg = 0
-folder_path = f'./results/simulation/spt/dist{order}_degree{pref_ori_dg}_size{int(num_syn_clustered/k)}'
+folder_path = f'./results/simulation/spt/dist{distance_to_soma}_degree{pref_ori_dg}_full_parallel'
 if not os.path.exists(folder_path):
     os.makedirs(folder_path)
     
-# 保存所有打开的图形到指定文件夹
-for i in plt.get_fignums():
-    plt.figure(i)
-    file_path = os.path.join(folder_path, f'figure_{i}.png')
-    plt.savefig(file_path)
-    plt.close(i)
+cell1 = CellWithNetworkx(swc_file_path)
+cell1.add_synapses(NUM_SYN_BASAL_EXC, 
+                              NUM_SYN_APIC_EXC, 
+                              NUM_SYN_BASAL_INH, 
+                              NUM_SYN_APIC_INH)
+cell1.assign_clustered_synapses(num_clusters, cluster_radius, distance_to_soma, num_conn_per_preunit) 
+# cell1.visualize_synapses(folder_path, 'Background + Clustered Synapses')
+cell1.add_inputs(folder_path)
+
+# cell1.visualize_tuning_curve()
+
+
+
+
+
+
+
+
 
 # # tuning curve
 # input: 0 45 90.. -> cluster
@@ -47,7 +46,7 @@ for i in plt.get_fignums():
 
 # plt.show()
 
-# type_array = cell1.add_clustered_synapses(num_synapses_to_add,k,cluster_radius)
+# type_array = cell1.add_clustered_synapses(num_synapses_to_add,num_clusters,cluster_radius)
 
 # start_time = time.time()
 # distance_matrix = cell1.calculate_distance_matrix()
