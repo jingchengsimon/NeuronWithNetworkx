@@ -74,6 +74,17 @@ def build_cell(**params):
     # cell1.visualize_synapses(folder_path, 'Background + Clustered Synapses')
     cell1.add_inputs(folder_path)
 
+# def run_threads_or_processes(parameters_list):
+#     threads_or_processes = []
+#     for params in parameters_list:
+#         # 使用 **params 解包字典，并传递给 your_function
+#         thread_or_process = threading.Thread(target=your_function, kwargs=params)
+#         threads_or_processes.append(thread_or_process)
+#         thread_or_process.start()
+
+#     for thread_or_process in threads_or_processes:
+#         thread_or_process.join()
+
 def run_processes(parameters_list):
     # with multiprocessing.Pool() as pool:
     #     pool.map(build_cell, parameters_list)
@@ -95,47 +106,35 @@ if __name__ == "__main__":
         'NUM_SYN_BASAL_INH': 1023,
         'NUM_SYN_APIC_INH': 1637,
     }
-    
+
     param1_diff = {
-        'basal channel type': 'AMPANMDA and AMPA',
-        'distance from basal clusters to soma': 3,
-        'number of clusters': 20,
+        'basal channel type': 'AMPANMDA',
+        'distance from basal clusters to soma': 1,
+        'number of clusters': 5,
         'number of synapses in each cluster': 10,
         'cluster radius': 5,
         'background synapse frequency': 1,
-        'number of stimuli': -1,
+        'number of stimuli': 5,
         'pref_ori_dg': 0,
-        'folder_tag': '1'}
+        'folder_tag': '1'
+    }
 
     param2_diff = {
-        'basal channel type': 'AMPANMDA and AMPA',
-        'distance from basal clusters to soma': 3,
-        'number of clusters': 20,
-        'number of synapses in each cluster': 20,
-        'cluster radius': 5,
-        'background synapse frequency': -1,
-        'number of stimuli': 1,
-        'pref_ori_dg': 0,
-        'folder_tag': '2'}
-    
-
-    param3_diff = {
         'basal channel type': 'AMPANMDA',
-        'distance from basal clusters to soma': 3,
-        'number of clusters': 20,
-        'number of synapses in each cluster': 40,
+        'distance from basal clusters to soma': 4,
+        'number of clusters': 5,
+        'number of synapses in each cluster': 10,
         'cluster radius': 5,
-        'background synapse frequency': -1,
-        'number of stimuli': 1,
+        'background synapse frequency': 1,
+        'number of stimuli': 5,
         'pref_ori_dg': 0,
-        'folder_tag': '3'
+        'folder_tag': '2'
     }
 
     # 构建参数列表
     parameters_list = [
         {**param_common, **param1_diff},
-        {**param_common, **param2_diff},
-        {**param_common, **param3_diff},
+        {**param_common, **param2_diff}
     ]
 
     run_processes(parameters_list)
