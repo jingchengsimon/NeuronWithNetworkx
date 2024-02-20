@@ -1,0 +1,3 @@
+import matplotlib.pyplot as plt
+
+v_list = [-42.81389957673183,-24.79735767367017,]
