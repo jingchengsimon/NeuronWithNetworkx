@@ -1,0 +1,10 @@
+{
+    "cell model": "L5PN",
+    "basal channel type": "AMPA",
+    "distance from basal clusters to soma": 4,
+    "number of clusters": 5,
+    "number of synapses in each cluster": 20,
+    "cluster radius": 5,
+    "background synapse frequency": 1,
+    "number of stimuli": 5
+}
