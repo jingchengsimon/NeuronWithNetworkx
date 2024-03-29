@@ -1,0 +1,1 @@
+MODOBJFILES= CaDynamics_E2.o Ca_HVA.o Ca_LVAst.o Ih.o Im.o K_Pst.o K_Tst.o NaTa_t.o NaTg.o NaTs2_t.o Nap_Et2.o ProbAMPA.o ProbAMPANMDA2.o ProbNMDA.o SK_E2.o SKv3_1.o ampanmda.o epsp.o int2pyr.o netgaba.o netglutamate.o pyr2pyr.o vecevent.o
