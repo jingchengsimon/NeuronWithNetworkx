@@ -32,7 +32,7 @@ PARAMETER {
         e = 0     (mV)  : AMPA and NMDA reversal potential
 	mg = 1   (mM)  : initial concentration of mg2+
         mggate
-    	initW = .001 (uS)
+    	initW = .001 (uS) : original value: 1
     	u0 = 0 :initial value of u, which is the running value of Use
 }
 
