@@ -18,7 +18,7 @@ from utils.generate_stim_utils import generate_indices, get_stim_ids, generate_v
 from utils.count_spikes import count_spikes
 
 import sys 
-sys.path.insert(0, '/home/mimo/Desktop/NeuronWithNetworkx/mod')
+sys.path.insert(0, 'C:/Users/Windows/Desktop/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
 # from neuron import coreneuron
 # coreneuron.enable = True
@@ -40,12 +40,10 @@ class CellWithNetworkx:
         # nrnmech_path = os.path.abspath(relative_path)
         # h.nrn_load_dll(nrnmech_path)
 
-        # h.load_file('./modelFile/L5PCbiophys3.hoc')
-        # h.load_file('./modelFile/L5PCtemplate.hoc')
-        h.nrn_load_dll('/home/mimo/Desktop/NeuronWithNetworkx/mod/nrnmech.dll')
+        h.nrn_load_dll('./mod/nrnmech.dll')
         # h.nrn_load_dll('/home/mimo/Desktop/NeuronWithNetworkx/x86_64/.libs/libnrnmech.so')
-        h.load_file('/home/mimo/Desktop/NeuronWithNetworkx/modelFile/L5PCbiophys3.hoc')
-        h.load_file('/home/mimo/Desktop/NeuronWithNetworkx/modelFile/L5PCtemplate.hoc')
+        h.load_file('./modelFile/L5PCbiophys3.hoc')
+        h.load_file('./modelFile/L5PCtemplate.hoc')
 
         self.complex_cell = h.L5PCtemplate(swc_file)
         h.celsius = 37
@@ -192,6 +190,12 @@ class CellWithNetworkx:
         # Number of synapses in each cluster is not fixed
         self.pref_ori_dg, self.unit_ids, indices = generate_indices(self.rnd, num_clusters, 
                                                                     num_conn_per_preunit, num_preunit)
+        
+        # # For distributed case (400 clus with 1 syn per clus)
+        # numbers = np.repeat(np.arange(80), 5)
+        # np.random.shuffle(numbers)
+        # indices = [[num] for num in numbers]
+
         self.indices = indices
 
         # Save assignment
@@ -292,6 +296,7 @@ class CellWithNetworkx:
             syn_ctr_sec_id = syn_ctr['section_id_synapse']
             syn_suc_sec_id = syn_ctr_sec_id
             syn_pre_sec_id = syn_ctr_sec_id
+            
             while len(dis_syn_from_ctr) < num_syn_per_cluster - 1:
                 # the children section of the center section
                 if list(self.DiG.successors(syn_suc_sec_id)):
@@ -309,13 +314,34 @@ class CellWithNetworkx:
                     syn_pre_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]
                     dis_syn_pre_from_ctr = np.array(syn_ctr['loc'] * syn_ctr_sec.L + (1 - syn_pre_surround_ctr['loc']) * syn_pre_sec.L)
 
-                try:
-                    dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_suc_from_ctr, dis_syn_pre_from_ctr))
-                    syn_surround_ctr = pd.concat([syn_surround_ctr, syn_suc_surround_ctr, syn_pre_surround_ctr])
-                # there is no children section of the center section
-                except UnboundLocalError:
-                    dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_pre_from_ctr))
-                    syn_surround_ctr = pd.concat([syn_surround_ctr, syn_pre_surround_ctr])
+                arr_to_concat = []
+                df_to_concat = []
+
+                if ('dis_syn_from_ctr' in locals()) and ('syn_surround_ctr' in locals()): 
+                    arr_to_concat.append(dis_syn_from_ctr)
+                    df_to_concat.append(syn_surround_ctr)
+
+                if ('dis_syn_suc_from_ctr' in locals()) and ('syn_suc_surround_ctr' in locals()):
+                    arr_to_concat.append(dis_syn_suc_from_ctr)
+                    df_to_concat.append(syn_suc_surround_ctr)
+                
+                if ('dis_syn_pre_from_ctr' in locals()) and ('syn_pre_surround_ctr' in locals()):
+                    arr_to_concat.append(dis_syn_pre_from_ctr)
+                    df_to_concat.append(syn_pre_surround_ctr)
+
+                if arr_to_concat:
+                    dis_syn_from_ctr = np.concatenate(arr_to_concat)
+
+                if df_to_concat:
+                    syn_surround_ctr = pd.concat(df_to_concat)
+
+                # try:
+                #     dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_suc_from_ctr, dis_syn_pre_from_ctr))
+                #     syn_surround_ctr = pd.concat([syn_surround_ctr, syn_suc_surround_ctr, syn_pre_surround_ctr])
+                # # there is no children section of the center section
+                # except UnboundLocalError:
+                #     dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_pre_from_ctr))
+                #     syn_surround_ctr = pd.concat([syn_surround_ctr, syn_pre_surround_ctr])
 
             cluster_member_index = distance_synapse_mark_compare(dis_syn_from_ctr, dis_mark_from_ctr)
             
@@ -330,7 +356,7 @@ class CellWithNetworkx:
                 except IndexError:
                     self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = -1
 
-    def add_inputs(self, folder_path, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
+    def add_inputs(self, simu_condition, folder_path, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
         self.bg_exc_channel_type = bg_exc_channel_type
@@ -354,9 +380,8 @@ class CellWithNetworkx:
         num_time_points = 1 + 40 * self.DURATION
         
         # num_activated_preunit_list = range(0, self.num_preunit+5*int(self.num_preunit/100), 5*int(self.num_preunit/100)) 
-        self.num_activated_preunit_list = range(0, self.num_preunit+2, 2)
+        self.num_activated_preunit_list = range(0, self.num_preunit + 2, 2)
         num_aff_fibers = len(self.num_activated_preunit_list)
-        # num_aff_fibers = 1
 
         self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
         self.apic_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
@@ -370,113 +395,14 @@ class CellWithNetworkx:
         self.basal_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
         self.tuft_bg_i_nmda_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
         self.tuft_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-                
-        self.dend_v_array = np.zeros((self.num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_i_array = np.zeros((self.num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_nmda_i_array = np.zeros((self.num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_ampa_i_array = np.zeros((self.num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
 
-        # def process_unit(num_activated_preunit):
-        #     # 在第一层循环中处理聚类输入
-        #     spt_unit_list_truncated = random.sample(spt_unit_list, num_activated_preunit)
+        num_clusters = 5
+        self.dend_v_array = np.zeros((num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
+        self.dend_i_array = np.zeros((num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
+        self.dend_nmda_i_array = np.zeros((num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
+        self.dend_ampa_i_array = np.zeros((num_clusters, num_time_points, self.num_stim, num_aff_fibers, num_trials))
 
-        #     add_clustered_inputs(self.section_synapse_df, 
-        #                         self.syn_param_exc, 
-        #                         self.num_clusters, 
-        #                         self.basal_channel_type,   
-        #                         self.initW,
-        #                         spt_unit_list_truncated, 
-        #                         self.lock)
-            
-        #     for num_trial in range(num_trials): # 20
-
-        #         add_background_exc_inputs(self.section_synapse_df, 
-        #                                 self.syn_param_exc, 
-        #                                 self.DURATION,
-        #                                 self.FREQ_EXC, 
-        #                                 self.input_ratio_basal_apic,
-        #                                 self.bg_exc_channel_type,
-        #                                 self.initW,
-        #                                 self.lock)
-                
-        #         add_background_inh_inputs(self.section_synapse_df, 
-        #                                 self.syn_param_inh, 
-        #                                 self.DURATION, 
-        #                                 self.FREQ_INH, 
-        #                                 self.input_ratio_basal_apic,
-        #                                 num_syn_inh_list, 
-        #                                 self.inh_delay,
-        #                                 self.lock)
-                
-        #         ori_dg = stim_id = stim_index = 1
-        #         # stim_index = np.where(stim_ids == stim_id)[0][0] + 1
-            
-        #         # Run the simulation
-        #         num_aff_fiber = self.num_activated_preunit_list.index(num_activated_preunit)
-        #         self.run_simulation(num_aff_fiber, num_trial)
-
-        #     # # 使用第二个线程池并行处理每个 `num_trial`
-        #     # with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as trial_executor:
-        #     #     trial_executor.map(lambda num_trial: process_trial(num_activated_preunit, num_trial), 
-        #     #                                 range(num_trials))
-
-        # # def process_trial(num_activated_preunit, num_trial):
-        #     # 添加背景兴奋性输入
-
-        #     add_background_exc_inputs(self.section_synapse_df, 
-        #                             self.syn_param_exc, 
-        #                             self.DURATION,
-        #                             self.FREQ_EXC, 
-        #                             self.input_ratio_basal_apic,
-        #                             self.bg_exc_channel_type,
-        #                             self.initW,
-        #                             self.lock)
-        #     print(f'exc num_aff_fiber: {num_aff_fiber}, num_trial: {num_trial} done')
-
-        #     # 添加背景抑制性输入
-        #     add_background_inh_inputs(self.section_synapse_df, 
-        #                             self.syn_param_inh, 
-        #                             self.DURATION, 
-        #                             self.FREQ_INH, 
-        #                             self.input_ratio_basal_apic,
-        #                             num_syn_inh_list, 
-        #                             self.inh_delay,
-        #                             self.lock)
-        #     print(f'inh num_aff_fiber: {num_aff_fiber}, num_trial: {num_trial} done')
-
-        #     # 运行仿真
-        #     num_aff_fiber = num_activated_preunit_list.index(num_activated_preunit)
-        #     self.run_simulation(num_aff_fiber, num_trial)
-
-        # def process_trial(num_activated_preunit, num_trial):
-            
-        #     # add_background_exc_inputs(self.section_synapse_df, 
-        #     #                         self.syn_param_exc, 
-        #     #                         self.DURATION,
-        #     #                         self.FREQ_EXC, 
-        #     #                         self.input_ratio_basal_apic,
-        #     #                         self.bg_exc_channel_type,
-        #     #                         self.initW,
-        #     #                         self.lock)
-        #     # print(f'exc num_aff_fiber: {num_aff_fiber}, num_trial: {num_trial} done')
-
-        #     # add_background_inh_inputs(self.section_synapse_df, 
-        #     #                         self.syn_param_inh, 
-        #     #                         self.DURATION, 
-        #     #                         self.FREQ_INH, 
-        #     #                         self.input_ratio_basal_apic,
-        #     #                         self.num_syn_inh_list, 
-        #     #                         self.inh_delay,
-        #     #                         self.lock)
-        #     # print(f'inh num_aff_fiber: {num_aff_fiber}, num_trial: {num_trial} done')
-
-        #     # 运行仿真
-        #     num_aff_fiber = self.num_activated_preunit_list.index(num_activated_preunit)
-        #     self.run_simulation(num_aff_fiber, num_trial)
-  
         for num_activated_preunit in self.num_activated_preunit_list: # 40
-
-            # for spt_unit_list in spt_unit_list_list:
             for num_stim in range(self.num_stim):
                 
                 spt_unit_list = spt_unit_list_list[num_stim]
@@ -492,42 +418,36 @@ class CellWithNetworkx:
                                     spt_unit_list_truncated, 
                                     self.lock)
                 
-                # with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as trial_executor:
-                #     trial_executor.map(lambda num_trial: process_trial(num_activated_preunit, num_trial), 
-                #                                 range(num_trials))
-                    
                 for num_trial in range(num_trials): # 20
+
+                    # Add background inputs for in vivo-like condition
+                    if simu_condition == 'invivo':
                     
-                    add_background_exc_inputs(self.section_synapse_df, 
-                                            self.syn_param_exc, 
-                                            self.DURATION,
-                                            self.FREQ_EXC, 
-                                            self.input_ratio_basal_apic,
-                                            self.bg_exc_channel_type,
-                                            self.initW,
-                                            self.lock)
-                    
-                    add_background_inh_inputs(self.section_synapse_df, 
-                                            self.syn_param_inh, 
-                                            self.DURATION, 
-                                            self.FREQ_INH, 
-                                            self.input_ratio_basal_apic,
-                                            self.num_syn_inh_list, 
-                                            self.inh_delay,
-                                            self.lock)
-                    
-                    ori_dg = stim_id = stim_index = 1
+                        add_background_exc_inputs(self.section_synapse_df, 
+                                                self.syn_param_exc, 
+                                                self.DURATION,
+                                                self.FREQ_EXC, 
+                                                self.input_ratio_basal_apic,
+                                                self.bg_exc_channel_type,
+                                                self.initW,
+                                                self.lock)
+                        
+                        add_background_inh_inputs(self.section_synapse_df, 
+                                                self.syn_param_inh, 
+                                                self.DURATION, 
+                                                self.FREQ_INH, 
+                                                self.input_ratio_basal_apic,
+                                                self.num_syn_inh_list, 
+                                                self.inh_delay,
+                                                self.lock)
+                        
+                    # ori_dg = stim_id = stim_index = 1
                     # stim_index = np.where(stim_ids == stim_id)[0][0] + 1
                 
                     # Run the simulation
                     num_aff_fiber = self.num_activated_preunit_list.index(num_activated_preunit)
                     self.run_simulation(num_stim, num_aff_fiber, num_trial)
 
-
-        # 使用第一个线程池并行处理每个 `num_activated_preunit`
-        # with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as unit_executor:
-        #     unit_executor.map(process_unit, num_activated_preunit_list)
-        
         np.save(os.path.join(folder_path,'soma_v_array.npy'), self.soma_v_array)  
         np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
         np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
@@ -592,7 +512,8 @@ class CellWithNetworkx:
         dend_i_nmda_list_list = []
         dend_i_ampa_list_list = []
 
-        for cluster_id in range(self.num_clusters):
+        # for cluster_id in range(self.num_clusters):
+        for cluster_id in range(5):
             cluster_basal_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['segment_synapse'].values[0]
             dend_v = h.Vector().record(cluster_basal_ctr._ref_v)
 
@@ -640,16 +561,14 @@ class CellWithNetworkx:
                 self.tuft_bg_i_nmda_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(tuft_bg_i_nmda_list), axis=0)
             except UnboundLocalError:
                 pass
-
-            for cluster_id in range(self.num_clusters):
+            
+            for cluster_id in range(5):
+            # for cluster_id in range(self.num_clusters):
                 self.dend_v_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_v_list[cluster_id])
                 self.dend_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_list_list[cluster_id]), axis=0)
                 self.dend_nmda_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_nmda_list_list[cluster_id]), axis=0)
                 self.dend_ampa_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_ampa_list_list[cluster_id]), axis=0)
 
-                # self.dend_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_i_list[cluster_id])
-                # self.dend_nmda_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_i_nmda_list[cluster_id])
-                # self.dend_ampa_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_i_ampa_list[cluster_id])
             
     def add_single_synapse(self, num_syn, region, sim_type):
         # sections = self.sections_basal if region == 'basal' else self.sections_apical
@@ -705,7 +624,7 @@ from utils.genarate_simu_params_utils import generate_simu_params
 sys.setrecursionlimit(1000000)
 
 # swc_file_path = './modelFile/cell1.asc'
-swc_file_path = '/home/mimo/Desktop/neuron_reduce/example/modelFile/cell1.asc'
+swc_file_path = './modelFile/cell1.asc'
 
 def build_cell(**params):
 
@@ -715,6 +634,7 @@ def build_cell(**params):
     NUM_SYN_APIC_INH, \
     NUM_SYN_SOMA_INH, \
     DURATION, \
+    simu_condition, \
     basal_channel_type, \
     sec_type, \
     distance_to_root, \
@@ -746,6 +666,7 @@ def build_cell(**params):
         'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
         'NUM_SYN_SOMA_INH': NUM_SYN_SOMA_INH,
         'DURATION': DURATION,
+        'simulation condition': simu_condition,
         'basal channel type': basal_channel_type,
         'section type': sec_type,
         'distance from basal clusters to root': distance_to_root,
@@ -783,7 +704,7 @@ def build_cell(**params):
                                     num_stim, stim_time, num_conn_per_preunit, num_preunit,
                                     folder_path) 
 
-    cell1.add_inputs(folder_path, input_ratio_basal_apic, 
+    cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, inh_delay, num_trials)
 
 def run_processes(parameters_list):

@@ -40,6 +40,13 @@ def generate_vecstim(unit_ids, num_stim, stim_time, folder_path):
 
         ## Single/Double Netstim
         
+        # netstim = h.NetStim()
+        # netstim.number = num_stim
+        # netstim.interval = 3 # ms (the default value is actually 10 ms)
+        # netstim.start = 500 #np.random.normal(500, 5)
+        # netstim.noise = 0
+        # spt_unit = netstim
+
         spt_unit = np.floor(np.random.normal(stim_time, 5, num_stim))
         spt_unit_list.append(spt_unit)
 
