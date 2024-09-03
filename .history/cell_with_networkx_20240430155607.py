@@ -22,7 +22,11 @@ warnings.filterwarnings("ignore", category=numba.NumbaDeprecationWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning) # remember update df.append to pd.concat
 
 class CellWithNetworkx:
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq):
+========
+    def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, DURATION):
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
         h.load_file("import3d.hoc")
         
         # changing the loc of folder seems to make loading the relative path wrong
@@ -38,7 +42,7 @@ class CellWithNetworkx:
         h.celsius = 37
         
         # h.v_init, h_tstop and h.run (attributes for simulation) are included in gui, so don't forget to import gui
-        h.v_init = self.complex_cell.soma[0].e_pas
+        h.v_init = self.complex_cell.soma[0].e_pas # -90 mV
 
         self.distance_matrix = None
 
@@ -54,9 +58,15 @@ class CellWithNetworkx:
         
         if bg_exc_freq != 0:
             self.spike_interval = 1000/bg_exc_freq # interval=1000(ms)/f
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
         self.time_interval = 1/1000 # 1ms, 0.001s
         self.FREQ_INH = bg_inh_freq  # Hz, /s
         self.DURATION = 1000
+========
+        # self.time_interval = 1/1000 # 1ms, 0.001s
+        self.FREQ_INH = bg_inh_freq  # Hz, /s
+        self.DURATION = DURATION # 1s
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
 
         self.syn_param_exc = [0, 0.3, 1.8, 0.0016] # reverse_potential, tau1, tau2, syn_weight
         self.syn_param_inh = [-86, 1, 8, 0.0008]
@@ -91,10 +101,16 @@ class CellWithNetworkx:
         self.distance_to_soma = None
         self.num_clusters = None
         self.cluster_radius = None
+
+        self.bg_exc_channel_type = None
+        self.initW = None
+        self.inh_delay = None
+
         self.num_stim = None
-        self.num_syn_per_cluster = None
+        self.stim_time = None
         self.num_conn_per_preunit = None
         self.num_preunit = None
+        # self.num_syn_per_cluster = None
 
         self.ori_dg_list = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
         self.pref_ori_dg = None
@@ -147,12 +163,19 @@ class CellWithNetworkx:
         self.add_single_synapse(num_syn_apic_inh, 'apical', 'inh')
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type,
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
                                   dis_to_root, num_clusters, 
                                   cluster_radius, num_stim, 
                                   num_conn_per_preunit,
                                   folder_path):
         
         num_preunit = 100
+========
+                                  dis_to_root, num_clusters, cluster_radius, 
+                                  num_stim, stim_time, num_conn_per_preunit, num_preunit,
+                                  folder_path):
+        
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
         # Number of synapses in each cluster is not fixed
         self.pref_ori_dg, self.unit_ids, indices = generate_indices(self.rnd, num_clusters, 
                                                                     num_conn_per_preunit, num_preunit)
@@ -174,8 +197,9 @@ class CellWithNetworkx:
         self.dis_to_root = dis_to_root
         self.num_clusters = num_clusters
         self.cluster_radius = cluster_radius
+
         self.num_stim = num_stim
-        # self.num_syn_per_cluster = num_syn_per_cluster
+        self.stim_time = stim_time
         self.num_conn_per_preunit = num_conn_per_preunit
         self.num_preunit = num_preunit
 
@@ -259,7 +283,7 @@ class CellWithNetworkx:
             syn_pre_sec_id = syn_ctr_sec_id
             while len(dis_syn_from_ctr) < num_syn_per_cluster - 1:
                 # the children section of the center section
-                if list(self.DiG.successors(syn_ctr_sec_id)):
+                if list(self.DiG.successors(syn_suc_sec_id)):
                     # iterate
                     syn_suc_sec_id = self.rnd.choice(list(self.DiG.successors(syn_suc_sec_id)))
                     syn_suc_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]['section_synapse'].values[0]
@@ -268,7 +292,7 @@ class CellWithNetworkx:
                 
                 # the parent section of the center section
                 # there is no section on the soma, so we should not choose soma as the parent section
-                if list(self.DiG.predecessors(syn_ctr_sec_id)) not in ([], [0]):
+                if list(self.DiG.predecessors(syn_pre_sec_id)) not in ([], [0]):
                     syn_pre_sec_id = self.rnd.choice(list(self.DiG.predecessors(syn_pre_sec_id)))
                     syn_pre_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]['section_synapse'].values[0]
                     syn_pre_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]
@@ -303,21 +327,28 @@ class CellWithNetworkx:
             # print('cluster_id: ', i)
             # print(self.section_synapse_df[self.section_synapse_df['cluster_id'] == i]['segment_synapse'].values)
 
-    def add_inputs(self, folder_path, num_trials):
+    def add_inputs(self, folder_path, bg_exc_channel_type, initW, inh_delay, num_trials):
 
+        self.bg_exc_channel_type = bg_exc_channel_type
+        self.initW = initW
+        self.inh_delay = inh_delay
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
 
         ori_dg_list, unit_ids, num_stims = self.ori_dg_list, self.unit_ids, 2
         # 创建一个空的 DataFrame
         self.num_spikes_df = pd.DataFrame(index=range(1, num_stims + 1), columns=ori_dg_list)
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
         spt_unit_list = generate_vecstim(unit_ids, self.num_stim, folder_path)
+========
+        spt_unit_list = generate_vecstim(unit_ids, self.num_stim, self.stim_time, folder_path)
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
         
         num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh]
         
         # create an ndarray to store the voltage of each cluster of each trial 
-        num_time_points = 40001
+        num_time_points = 1 + 40 * self.DURATION
         
-        num_activated_preunit_list = range(0, 100+5, 5) # currently don't exceed 100
+        num_activated_preunit_list = range(0, self.num_preunit+5*int(self.num_preunit/100), 5*int(self.num_preunit/100)) # currently don't exceed num_preunit
         num_aff_fibers = len(num_activated_preunit_list)
 
         self.dend_v_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
@@ -337,12 +368,17 @@ class CellWithNetworkx:
             
             # spt_unit_list_truncated = spt_unit_list[:num_activated_preunit]
             # random choose from spt_unit_list
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
+========
+
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
             spt_unit_list_truncated = random.sample(spt_unit_list, num_activated_preunit)
 
             add_clustered_inputs(self.section_synapse_df, 
                                  self.syn_param_exc, 
                                  self.num_clusters, 
-                                 self.basal_channel_type,   
+                                 self.basal_channel_type,  
+                                 self.initW, 
                                  spt_unit_list_truncated, 
                                  self.lock)
             
@@ -351,6 +387,8 @@ class CellWithNetworkx:
                 add_background_exc_inputs(self.section_synapse_df, 
                                         self.syn_param_exc, 
                                         self.spike_interval, 
+                                        self.bg_exc_channel_type,
+                                        self.initW,
                                         self.lock)
                 
                 add_background_inh_inputs(self.section_synapse_df, 
@@ -358,6 +396,10 @@ class CellWithNetworkx:
                                         self.DURATION, 
                                         self.FREQ_INH, 
                                         num_syn_inh_list, 
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
+========
+                                        self.inh_delay,
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
                                         self.lock)
                 
                 ori_dg = stim_id = stim_index = 1
@@ -369,15 +411,23 @@ class CellWithNetworkx:
                 self.run_simulation(num_aff_fiber, num_trial)
 
         np.save(os.path.join(folder_path,'soma_v_array.npy'), self.soma_v_array)  
+        np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
+        np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
+        # np.save(os.path.join(folder_path,'soma_ica_array.npy'), self.soma_ica_array)
+
         np.save(os.path.join(folder_path,'dend_v_array.npy'), self.dend_v_array)
         np.save(os.path.join(folder_path,'dend_i_array.npy'), self.dend_i_array)
         np.save(os.path.join(folder_path,'dend_nmda_i_array.npy'), self.dend_nmda_i_array)
         np.save(os.path.join(folder_path,'dend_ampa_i_array.npy'), self.dend_ampa_i_array)
+<<<<<<<< HEAD:.history/cell_with_networkx_20240430155607.py
 
         np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
         np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
         # np.save(os.path.join(folder_path,'soma_ica_array.npy'), self.soma_ica_array)
                 
+========
+        
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/cell_with_networkx_20240903094115.py
     def run_simulation(self, num_aff_fiber, num_trial):
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)

@@ -16,6 +16,10 @@ def build_cell(**params):
     NUM_SYN_APIC_EXC, \
     NUM_SYN_BASAL_INH, \
     NUM_SYN_APIC_INH, \
+<<<<<<<< HEAD:.history/main_20240903094023.py
+    DURATION, \
+========
+<<<<<<< HEAD
     DURATION, \
     basal_channel_type, \
     sec_type, \
@@ -33,11 +37,38 @@ def build_cell(**params):
     num_preunit, \
     pref_ori_dg, \
     num_trials, \
+=======
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094018.py
+    basal_channel_type, \
+    sec_type, \
+    distance_to_root, \
+    num_clusters, \
+    cluster_radius, \
+    bg_exc_freq, \
+    bg_inh_freq, \
+    bg_exc_channel_type, \
+    initW, \
+    inh_delay, \
+    num_stim, \
+    stim_time, \
+    num_conn_per_preunit, \
+    num_preunit, \
+    pref_ori_dg, \
+<<<<<<<< HEAD:.history/main_20240903094023.py
+    num_trials, \
+========
+>>>>>>> 5ae65fad7baf180b2dabd9ed5d1ca6386d7d131b
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094018.py
     folder_tag = params.values()
 
     # 创建保存文件夹
     time_tag = time.strftime("%Y%m%d_%H%M", time.localtime())
 
+<<<<<<<< HEAD:.history/main_20240903094023.py
+    # folder_path = './results/simulation/pseudo/' + basal_channel_type + '_' + time_tag + '/' + folder_tag
+    folder_path = 'D:/results/simulation/pseudo/' + time_tag + '/' + folder_tag
+========
+<<<<<<< HEAD
     # folder_path = './results/simulation/pseudo/' + basal_channel_type + '_' + time_tag + '/' + folder_tag
     folder_path = 'D:/results/simulation/pseudo/' + time_tag + '/' + folder_tag
 
@@ -63,6 +94,40 @@ def build_cell(**params):
         'number of connection per preunit': num_conn_per_preunit,
         'number of preunit': num_preunit,
         'number of trials': num_trials,
+=======
+    # folder_path = f'./results/simulation/spt/dist{distance_to_soma}_degree{pref_ori_dg}_nClusters{num_clusters}_exp2syn'
+    # folder_path = f'./results/simulation/pseudo/AMPANMDA_dist{distance_to_soma}_nClus{num_clusters}_nSyn{num_syn_per_cluster}_r{cluster_radius}_bgFreq{bg_syn_freq}_nIn{num_conn_per_preunit}'
+    folder_path = './results/simulation/pseudo/' + basal_channel_type + '_' + time_tag + '_' + folder_tag
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094018.py
+
+    simulation_params = {
+        'NUM_SYN_BASAL_EXC': NUM_SYN_BASAL_EXC,
+        'NUM_SYN_APIC_EXC': NUM_SYN_APIC_EXC,
+        'NUM_SYN_BASAL_INH': NUM_SYN_BASAL_INH,
+        'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
+        'DUARTION': DURATION,
+        'cell model': 'L5PN',
+        'basal channel type': basal_channel_type,
+        'section type': sec_type,
+        'distance from basal clusters to root': distance_to_root,
+        'number of clusters': num_clusters,
+        'cluster radius': cluster_radius,
+<<<<<<<< HEAD:.history/main_20240903094023.py
+        'background excitatory frequency': bg_exc_freq,
+        'background inhibitory frequency': bg_inh_freq,
+        'background excitatory channel type': bg_exc_channel_type,
+        'initial weight of AMPANMDA synapses': initW,
+        'delay of inhibitory inputs': inh_delay,
+        'number of stimuli': num_stim,
+        'time point of stimulation': stim_time,
+        'number of connection per preunit': num_conn_per_preunit,
+        'number of preunit': num_preunit,
+        'number of trials': num_trials,
+========
+        'background synapse frequency': bg_syn_freq,
+        'number of stimuli': num_conn_per_preunit,
+>>>>>>> 5ae65fad7baf180b2dabd9ed5d1ca6386d7d131b
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094018.py
     }
 
     if not os.path.exists(folder_path):

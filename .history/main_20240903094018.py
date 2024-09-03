@@ -16,6 +16,7 @@ def build_cell(**params):
     NUM_SYN_APIC_EXC, \
     NUM_SYN_BASAL_INH, \
     NUM_SYN_APIC_INH, \
+<<<<<<<< HEAD:.history/main_20240903094018.py
 <<<<<<< HEAD
     DURATION, \
     basal_channel_type, \
@@ -35,15 +36,29 @@ def build_cell(**params):
     pref_ori_dg, \
     num_trials, \
 =======
+========
+    DURATION, \
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094021.py
     basal_channel_type, \
-    distance_to_soma, \
+    sec_type, \
+    distance_to_root, \
     num_clusters, \
-    num_syn_per_cluster, \
     cluster_radius, \
-    bg_syn_freq, \
+    bg_exc_freq, \
+    bg_inh_freq, \
+    bg_exc_channel_type, \
+    initW, \
+    inh_delay, \
+    num_stim, \
+    stim_time, \
     num_conn_per_preunit, \
+    num_preunit, \
     pref_ori_dg, \
+<<<<<<<< HEAD:.history/main_20240903094018.py
 >>>>>>> 5ae65fad7baf180b2dabd9ed5d1ca6386d7d131b
+========
+    num_trials, \
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094021.py
     folder_tag = params.values()
 
     # 创建保存文件夹

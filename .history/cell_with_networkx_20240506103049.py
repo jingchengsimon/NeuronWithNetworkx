@@ -310,7 +310,11 @@ class CellWithNetworkx:
         ori_dg_list, unit_ids, num_stims = self.ori_dg_list, self.unit_ids, 2
         # 创建一个空的 DataFrame
         self.num_spikes_df = pd.DataFrame(index=range(1, num_stims + 1), columns=ori_dg_list)
+<<<<<<<< HEAD:.history/cell_with_networkx_20240506103049.py
         spt_unit_list = generate_vecstim(unit_ids, self.num_stim, folder_path)
+========
+        # spt_unit_list = generate_vecstim(unit_ids, self.num_stim, folder_path)
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/simpleModel.py_20240513115241.py
         
         num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh]
         
@@ -320,10 +324,17 @@ class CellWithNetworkx:
         num_activated_preunit_list = range(0, 100+5, 5) # currently don't exceed 100
         num_aff_fibers = len(num_activated_preunit_list)
 
+<<<<<<<< HEAD:.history/cell_with_networkx_20240506103049.py
         self.dend_v_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
         self.dend_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
         self.dend_nmda_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
         self.dend_ampa_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
+========
+        # self.dend_v_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
+        # self.dend_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
+        # self.dend_nmda_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
+        # self.dend_ampa_i_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/simpleModel.py_20240513115241.py
         
         self.apic_v_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
         self.apic_ica_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
@@ -333,18 +344,23 @@ class CellWithNetworkx:
         
         # for num_syn_to_get_input in range(self.num_syn_per_cluster):
         # for num_activated_preunit in range(0, self.num_preunit+5, 5):
-        for num_activated_preunit in num_activated_preunit_list:
+        for num_activated_preunit in num_activated_preunit_list[:1]:
             
             # spt_unit_list_truncated = spt_unit_list[:num_activated_preunit]
             # random choose from spt_unit_list
+<<<<<<<< HEAD:.history/cell_with_networkx_20240506103049.py
             spt_unit_list_truncated = random.sample(spt_unit_list, num_activated_preunit)
+========
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/simpleModel.py_20240513115241.py
 
-            add_clustered_inputs(self.section_synapse_df, 
-                                 self.syn_param_exc, 
-                                 self.num_clusters, 
-                                 self.basal_channel_type,   
-                                 spt_unit_list_truncated, 
-                                 self.lock)
+            # spt_unit_list_truncated = random.sample(spt_unit_list, num_activated_preunit)
+
+            # add_clustered_inputs(self.section_synapse_df, 
+            #                      self.syn_param_exc, 
+            #                      self.num_clusters, 
+            #                      self.basal_channel_type,   
+            #                      spt_unit_list_truncated, 
+            #                      self.lock)
             
             for num_trial in range(num_trials):
 
@@ -369,6 +385,7 @@ class CellWithNetworkx:
                 self.run_simulation(num_aff_fiber, num_trial)
 
         np.save(os.path.join(folder_path,'soma_v_array.npy'), self.soma_v_array)  
+<<<<<<<< HEAD:.history/cell_with_networkx_20240506103049.py
         np.save(os.path.join(folder_path,'dend_v_array.npy'), self.dend_v_array)
         np.save(os.path.join(folder_path,'dend_i_array.npy'), self.dend_i_array)
         np.save(os.path.join(folder_path,'dend_nmda_i_array.npy'), self.dend_nmda_i_array)
@@ -378,6 +395,17 @@ class CellWithNetworkx:
         np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
         # np.save(os.path.join(folder_path,'soma_ica_array.npy'), self.soma_ica_array)
                 
+========
+        np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
+        np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
+        # np.save(os.path.join(folder_path,'soma_ica_array.npy'), self.soma_ica_array)
+
+        # np.save(os.path.join(folder_path,'dend_v_array.npy'), self.dend_v_array)
+        # np.save(os.path.join(folder_path,'dend_i_array.npy'), self.dend_i_array)
+        # np.save(os.path.join(folder_path,'dend_nmda_i_array.npy'), self.dend_nmda_i_array)
+        # np.save(os.path.join(folder_path,'dend_ampa_i_array.npy'), self.dend_ampa_i_array)
+        
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/simpleModel.py_20240513115241.py
     def run_simulation(self, num_aff_fiber, num_trial):
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
@@ -393,28 +421,47 @@ class CellWithNetworkx:
         dend_i_ampa_list = []
 
         # 假设 clusters 是包含所有 cluster 的列表或数组
-        for cluster_id in range(self.num_clusters):
-            # 获取当前 cluster 的 basal_ctr 和 syn_ctr
-            cluster_basal_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['segment_synapse'].values[0]
-            # print('cluster_basal_ctr: ', cluster_basal_ctr)
-            syn_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['synapse'].values[0]
+        # for cluster_id in range(self.num_clusters):
+        #     # 获取当前 cluster 的 basal_ctr 和 syn_ctr
+        #     cluster_basal_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['segment_synapse'].values[0]
+        #     # print('cluster_basal_ctr: ', cluster_basal_ctr)
+        #     syn_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['synapse'].values[0]
             
-            # 创建新的 dend_v 和 dend_i，并记录相应的电压和电流
-            dend_v = h.Vector().record(cluster_basal_ctr._ref_v)
-            dend_i = h.Vector().record(syn_ctr._ref_i)
+        #     # 创建新的 dend_v 和 dend_i，并记录相应的电压和电流
+        #     dend_v = h.Vector().record(cluster_basal_ctr._ref_v)
+        #     dend_i = h.Vector().record(syn_ctr._ref_i)
             
-            try:
-                dend_i_nmda = h.Vector().record(syn_ctr._ref_i_NMDA)
-            except AttributeError:
-                dend_i_nmda = h.Vector().record(syn_ctr._ref_i_AMPA)
+        #     try:
+        #         dend_i_nmda = h.Vector().record(syn_ctr._ref_i_NMDA)
+        #     except AttributeError:
+        #         dend_i_nmda = h.Vector().record(syn_ctr._ref_i_AMPA)
             
-            dend_i_ampa = h.Vector().record(syn_ctr._ref_i_AMPA)
+        #     dend_i_ampa = h.Vector().record(syn_ctr._ref_i_AMPA)
 
-            # 将 dend_v 和 dend_i 添加到列表中
-            dend_v_list.append(dend_v)
-            dend_i_list.append(dend_i)
-            dend_i_nmda_list.append(dend_i_nmda)
-            dend_i_ampa_list.append(dend_i_ampa)
+        #     # 将 dend_v 和 dend_i 添加到列表中
+        #     dend_v_list.append(dend_v)
+        #     dend_i_list.append(dend_i)
+        #     dend_i_nmda_list.append(dend_i_nmda)
+        #     dend_i_ampa_list.append(dend_i_ampa)
+
+
+        h.tstop = self.DURATION
+        h.run()
+              
+        self.soma_v_array[:, num_aff_fiber, num_trial] = np.array(soma_v)
+        # self.soma_ica_array[:, num_aff_fiber, num_trial] = np.array(soma_ica)
+
+        self.apic_v_array[:, num_aff_fiber, num_trial] = np.array(apic_v)
+        self.apic_ica_array[:, num_aff_fiber, num_trial] = np.array(apic_ica)
+
+        # for cluster_id in range(self.num_clusters):
+        #     self.dend_v_array[cluster_id, :, num_aff_fiber, num_trial] = np.array(dend_v_list[cluster_id])
+        #     self.dend_i_array[cluster_id, :, num_aff_fiber, num_trial] = np.array(dend_i_list[cluster_id])
+        #     self.dend_nmda_i_array[cluster_id, :, num_aff_fiber, num_trial] = np.array(dend_i_nmda_list[cluster_id])
+        #     self.dend_ampa_i_array[cluster_id, :, num_aff_fiber, num_trial] = np.array(dend_i_ampa_list[cluster_id])
+          
+
+
 
 
         h.tstop = self.DURATION

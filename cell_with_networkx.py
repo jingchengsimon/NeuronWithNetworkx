@@ -15,6 +15,7 @@ from utils.graph_utils import create_directed_graph, set_graph_order
 from utils.add_inputs_utils import add_background_exc_inputs, add_background_inh_inputs, add_clustered_inputs
 from utils.distance_utils import distance_synapse_mark_compare
 from utils.generate_stim_utils import generate_indices, get_stim_ids, generate_vecstim
+from utils.generate_stim_utils import generate_indices, get_stim_ids, generate_vecstim
 from utils.count_spikes import count_spikes
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
@@ -38,6 +39,7 @@ class CellWithNetworkx:
         h.celsius = 37
         
         # h.v_init, h_tstop and h.run (attributes for simulation) are included in gui, so don't forget to import gui
+        h.v_init = self.complex_cell.soma[0].e_pas # -90 mV
         h.v_init = self.complex_cell.soma[0].e_pas # -90 mV
 
         self.distance_matrix = None
@@ -91,10 +93,16 @@ class CellWithNetworkx:
         self.distance_to_soma = None
         self.num_clusters = None
         self.cluster_radius = None
+
+        self.bg_exc_channel_type = None
+        self.initW = None
+        self.inh_delay = None
+
         self.num_stim = None
-        self.num_syn_per_cluster = None
+        self.stim_time = None
         self.num_conn_per_preunit = None
         self.num_preunit = None
+        # self.num_syn_per_cluster = None
 
         self.ori_dg_list = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
         self.pref_ori_dg = None
@@ -107,6 +115,11 @@ class CellWithNetworkx:
         self.dend_i_array = None
         self.dend_nmda_i_array = None
         self.dend_ampa_i_array = None
+
+        self.apic_v_array = None
+        self.apic_ica_array = None
+        
+        # self.soma_ica_array = None
 
         self.apic_v_array = None
         self.apic_ica_array = None
@@ -147,9 +160,8 @@ class CellWithNetworkx:
         self.add_single_synapse(num_syn_apic_inh, 'apical', 'inh')
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type,
-                                  dis_to_root, num_clusters, 
-                                  cluster_radius, num_stim, 
-                                  num_conn_per_preunit, num_preunit,
+                                  dis_to_root, num_clusters, cluster_radius, 
+                                  num_stim, stim_time, num_conn_per_preunit, num_preunit,
                                   folder_path):
         
         # Number of synapses in each cluster is not fixed
@@ -171,10 +183,12 @@ class CellWithNetworkx:
         self.basal_channel_type = basal_channel_type
         self.sec_type = sec_type
         self.dis_to_root = dis_to_root
+        self.dis_to_root = dis_to_root
         self.num_clusters = num_clusters
         self.cluster_radius = cluster_radius
+
         self.num_stim = num_stim
-        # self.num_syn_per_cluster = num_syn_per_cluster
+        self.stim_time = stim_time
         self.num_conn_per_preunit = num_conn_per_preunit
         self.num_preunit = num_preunit
 
@@ -192,12 +206,45 @@ class CellWithNetworkx:
 
             sections_k_dis_soma = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list_soma]
             sections_k_dis_tuft = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list_tuft]
+            dis_list = self.class_dict_soma.get(dis_to_root, [])
+            sections_k_distance = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list]
+        elif sec_type == 'apical':
+            dis_list = self.class_dict_tuft.get(dis_to_root, []) 
+            sections_k_distance = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list]
+        elif sec_type == 'basal_apical':
+            dis_list_soma = self.class_dict_soma.get(dis_to_root, [])
+            dis_list_tuft = self.class_dict_tuft.get(dis_to_root, [])
+
+            sections_k_dis_soma = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list_soma]
+            sections_k_dis_tuft = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list_tuft]
        
+        # sections_k_distance = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list]
         # sections_k_distance = [section[0].sec for i, section in enumerate(self.all_sections) if i in dis_list]
         
         for i in range(num_clusters):
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A')]
 
+            # for basal_apical case
+            if sec_type == 'basal_apical':
+                if i <= num_clusters//2:
+                    sections_k_distance = sections_k_dis_soma 
+                    sec_syn_bg_exc_ordered_df = self.section_synapse_df[
+                        (self.section_synapse_df['section_synapse'].isin(sections_k_distance)) & 
+                        (self.section_synapse_df['type'] == 'A') &
+                        (self.section_synapse_df['region'] == 'basal')]
+                else:
+                    sections_k_distance = sections_k_dis_tuft
+                    sec_syn_bg_exc_ordered_df = self.section_synapse_df[
+                        (self.section_synapse_df['section_synapse'].isin(sections_k_distance)) & 
+                        (self.section_synapse_df['type'] == 'A') &
+                        (self.section_synapse_df['region'] == 'apical')]
+
+            # for common case
+            else:
+                sec_syn_bg_exc_ordered_df = self.section_synapse_df[
+                    (self.section_synapse_df['section_synapse'].isin(sections_k_distance)) & 
+                    (self.section_synapse_df['type'] == 'A') &
+                    (self.section_synapse_df['region'] == sec_type)]
             # for basal_apical case
             if sec_type == 'basal_apical':
                 if i <= num_clusters//2:
@@ -258,21 +305,29 @@ class CellWithNetworkx:
             syn_pre_sec_id = syn_ctr_sec_id
             while len(dis_syn_from_ctr) < num_syn_per_cluster - 1:
                 # the children section of the center section
-                if list(self.DiG.successors(syn_ctr_sec_id)):
+                if list(self.DiG.successors(syn_suc_sec_id)):
                     # iterate
                     syn_suc_sec_id = self.rnd.choice(list(self.DiG.successors(syn_suc_sec_id)))
                     syn_suc_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]['section_synapse'].values[0]
                     syn_suc_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]
                     dis_syn_suc_from_ctr = np.array((1 - syn_ctr['loc']) * syn_ctr_sec.L + syn_suc_surround_ctr['loc'] * syn_suc_sec.L)
                 
+                
                 # the parent section of the center section
                 # there is no section on the soma, so we should not choose soma as the parent section
-                if list(self.DiG.predecessors(syn_ctr_sec_id)) not in ([], [0]):
+                if list(self.DiG.predecessors(syn_pre_sec_id)) not in ([], [0]):
                     syn_pre_sec_id = self.rnd.choice(list(self.DiG.predecessors(syn_pre_sec_id)))
                     syn_pre_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]['section_synapse'].values[0]
                     syn_pre_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]
                     dis_syn_pre_from_ctr = np.array(syn_ctr['loc'] * syn_ctr_sec.L + (1 - syn_pre_surround_ctr['loc']) * syn_pre_sec.L)
 
+                try:
+                    dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_suc_from_ctr, dis_syn_pre_from_ctr))
+                    syn_surround_ctr = pd.concat([syn_surround_ctr, syn_suc_surround_ctr, syn_pre_surround_ctr])
+                # there is no children section of the center section
+                except UnboundLocalError:
+                    dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_pre_from_ctr))
+                    syn_surround_ctr = pd.concat([syn_surround_ctr, syn_pre_surround_ctr])
                 try:
                     dis_syn_from_ctr = np.concatenate((dis_syn_from_ctr, dis_syn_suc_from_ctr, dis_syn_pre_from_ctr))
                     syn_surround_ctr = pd.concat([syn_surround_ctr, syn_suc_surround_ctr, syn_pre_surround_ctr])
@@ -302,8 +357,11 @@ class CellWithNetworkx:
             # print('cluster_id: ', i)
             # print(self.section_synapse_df[self.section_synapse_df['cluster_id'] == i]['segment_synapse'].values)
 
-    def add_inputs(self, folder_path, num_trials):
+    def add_inputs(self, folder_path, bg_exc_channel_type, initW, inh_delay, num_trials):
 
+        self.bg_exc_channel_type = bg_exc_channel_type
+        self.initW = initW
+        self.inh_delay = inh_delay
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
 
         ori_dg_list, unit_ids, num_stims = self.ori_dg_list, self.unit_ids, 2
@@ -312,11 +370,12 @@ class CellWithNetworkx:
         # spt_unit_list = generate_vecstim(unit_ids, self.num_stim, folder_path)
         
         num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh]
+        num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh]
         
         # create an ndarray to store the voltage of each cluster of each trial 
-        num_time_points = 40001
+        num_time_points = 1 + 40 * self.DURATION
         
-        num_activated_preunit_list = range(0, 100+5, 5) # currently don't exceed 100
+        num_activated_preunit_list = range(0, self.num_preunit+5*int(self.num_preunit/100), 5*int(self.num_preunit/100)) # currently don't exceed num_preunit
         num_aff_fibers = len(num_activated_preunit_list)
 
         # self.dend_v_array = np.zeros((self.num_clusters, num_time_points, num_aff_fibers, num_trials))
@@ -328,6 +387,7 @@ class CellWithNetworkx:
         self.apic_ica_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
 
         self.soma_v_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
+        # self.soma_ica_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
         # self.soma_ica_array = np.zeros((num_time_points, num_aff_fibers, num_trials))
         
         # for num_syn_to_get_input in range(self.num_syn_per_cluster):
@@ -351,6 +411,8 @@ class CellWithNetworkx:
                 add_background_exc_inputs(self.section_synapse_df, 
                                         self.syn_param_exc, 
                                         self.spike_interval, 
+                                        self.bg_exc_channel_type,
+                                        self.initW,
                                         self.lock)
                 
                 add_background_inh_inputs(self.section_synapse_df, 
@@ -381,6 +443,10 @@ class CellWithNetworkx:
     def run_simulation(self, num_aff_fiber, num_trial):
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
+        # time_v = h.Vector().record(h._ref_t)
+        apic_v = h.Vector().record(self.complex_cell.apic[36](1)._ref_v)
+        apic_ica = h.Vector().record(self.complex_cell.apic[36](1)._ref_ica)
+        # soma_ica = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_ica)
         # time_v = h.Vector().record(h._ref_t)
         apic_v = h.Vector().record(self.complex_cell.apic[36](1)._ref_v)
         apic_ica = h.Vector().record(self.complex_cell.apic[36](1)._ref_ica)
@@ -443,6 +509,8 @@ class CellWithNetworkx:
 
         # for nc, spike_times_vec in zip(netcons_list, spike_times):
             # nc.record(spike_times_vec)
+
+
 
 
 
