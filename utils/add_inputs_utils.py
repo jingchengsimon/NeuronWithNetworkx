@@ -226,8 +226,6 @@ def add_clustered_inputs(section_synapse_df,
             # spt_unit including pre_unit to the section is truncated 
             # or no preunit is connected to this section
             except IndexError:
-                # spt_unit = h.NetStim()
-                # spt_unit.number = 0
                 spt_unit = np.array([])
             
             ## Single/Double Netstim

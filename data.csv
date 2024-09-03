@@ -1,0 +1,2 @@
+id,json_column
+1,"{""name"": ""Alice"", ""age"": 30, ""is_student"": false, ""courses"": [""math"", ""science""]}"
