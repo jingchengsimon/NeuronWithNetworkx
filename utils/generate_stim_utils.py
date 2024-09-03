@@ -26,7 +26,7 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
 
     return pref_ori_dg, unit_ids, indices
 
-def create_vecstim(unit_ids, num_stim, folder_path):
+def generate_vecstim(unit_ids, num_stim, stim_time, folder_path):
     spt_unit_list = []
     
     for unit_id in unit_ids:
@@ -42,8 +42,11 @@ def create_vecstim(unit_ids, num_stim, folder_path):
         netstim = h.NetStim()
         netstim.number = num_stim
         netstim.interval = 10 # ms (the default value is actually 10 ms)
-        # netstim.start = 500 # start after the simulation become stable
-        netstim.start = np.random.normal(500, 5)
+
+        # Start after the simulation become stable, 
+        # and also add random to the start time of inputs for clustered synapses
+        # netstim.start = 500 
+        netstim.start = np.random.normal(stim_time, 5) # time point of stimulation: 2500 ms
         netstim.noise = 0
         spt_unit = netstim
 

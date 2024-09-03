@@ -16,35 +16,53 @@ def build_cell(**params):
     NUM_SYN_APIC_EXC, \
     NUM_SYN_BASAL_INH, \
     NUM_SYN_APIC_INH, \
+    DURATION, \
     basal_channel_type, \
     sec_type, \
-    distance_to_soma, \
+    distance_to_root, \
     num_clusters, \
     cluster_radius, \
-    bg_syn_freq, \
+    bg_exc_freq, \
+    bg_inh_freq, \
+    bg_exc_channel_type, \
+    initW, \
+    inh_delay, \
     num_stim, \
+    stim_time, \
     num_conn_per_preunit, \
+    num_preunit, \
     pref_ori_dg, \
     num_trials, \
     folder_tag = params.values()
 
     # 创建保存文件夹
-    time_tag = time.strftime("%Y%m%d_%H", time.localtime())
+    time_tag = time.strftime("%Y%m%d_%H%M", time.localtime())
 
     # folder_path = './results/simulation/pseudo/' + basal_channel_type + '_' + time_tag + '/' + folder_tag
-    folder_path = './results/simulation/pseudo/' + time_tag + '/' + folder_tag
+    folder_path = 'D:/results/simulation/pseudo/' + time_tag + '/' + folder_tag
 
     simulation_params = {
+        'NUM_SYN_BASAL_EXC': NUM_SYN_BASAL_EXC,
+        'NUM_SYN_APIC_EXC': NUM_SYN_APIC_EXC,
+        'NUM_SYN_BASAL_INH': NUM_SYN_BASAL_INH,
+        'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
+        'DUARTION': DURATION,
         'cell model': 'L5PN',
         'basal channel type': basal_channel_type,
         'section type': sec_type,
-        'distance from basal clusters to soma': distance_to_soma,
+        'distance from basal clusters to root': distance_to_root,
         'number of clusters': num_clusters,
         'cluster radius': cluster_radius,
-        'background synapse frequency': bg_syn_freq,
+        'background excitatory frequency': bg_exc_freq,
+        'background inhibitory frequency': bg_inh_freq,
+        'background excitatory channel type': bg_exc_channel_type,
+        'initial weight of AMPANMDA synapses': initW,
+        'delay of inhibitory inputs': inh_delay,
         'number of stimuli': num_stim,
+        'time point of stimulation': stim_time,
         'number of connection per preunit': num_conn_per_preunit,
-        # 'number of preunit': num_preunit,
+        'number of preunit': num_preunit,
+        'number of trials': num_trials,
     }
 
     if not os.path.exists(folder_path):
@@ -54,23 +72,22 @@ def build_cell(**params):
     with open(json_filename, 'w') as json_file:
         json.dump(simulation_params, json_file, indent=4)
 
-    cell1 = CellWithNetworkx(swc_file_path, bg_syn_freq)
+    cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, DURATION)
     cell1.add_synapses(NUM_SYN_BASAL_EXC, 
-                                NUM_SYN_APIC_EXC, 
-                                NUM_SYN_BASAL_INH, 
-                                NUM_SYN_APIC_INH)
+                       NUM_SYN_APIC_EXC, 
+                       NUM_SYN_BASAL_INH, 
+                       NUM_SYN_APIC_INH)
+    
     cell1.assign_clustered_synapses(basal_channel_type, sec_type,
-                                    distance_to_soma, num_clusters, 
-                                    cluster_radius, num_stim, 
-                                    num_conn_per_preunit,
+                                    distance_to_root, num_clusters, cluster_radius, 
+                                    num_stim, stim_time, num_conn_per_preunit, num_preunit,
                                     folder_path) 
     
-    # cell1.visualize_synapses(folder_path, 'Background + Clustered Synapses')
-    cell1.add_inputs(folder_path, num_trials)
+    cell1.add_inputs(folder_path, bg_exc_channel_type, initW, inh_delay, num_trials)
 
 # def run_threads_or_processes(parameters_list):
 #     threads_or_processes = []
-#     for params in parameters_list:
+#     for params sin parameters_list:
 #         # 使用 **params 解包字典，并传递给 your_function
 #         thread_or_process = threading.Thread(target=your_function, kwargs=params)
 #         threads_or_processes.append(thread_or_process)
@@ -95,7 +112,6 @@ def run_processes(parameters_list):
 if __name__ == "__main__":
 
     params_list = generate_simu_params()
-
     run_processes(params_list)
 
 

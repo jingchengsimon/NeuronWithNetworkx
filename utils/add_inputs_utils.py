@@ -8,7 +8,7 @@ import numpy as np
 import json
 from utils.synapses_models import AMPANMDA
 
-def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval, lock):
+def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval, bg_exc_channel_type, initW, lock):
     
     # use timestamp to seed the random number generator for each trial
     # timestamp = int(time.time())
@@ -16,21 +16,30 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval,
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'] == 'A']
     num_syn_background_exc = len(sec_syn_bg_exc_df)
 
+    syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+    syn_params['initW'] = initW
+    
     def process_section(i):
         section = sec_syn_bg_exc_df.iloc[i]
         e_syn, tau1, tau2, syn_weight = syn_param_exc
-
+        
         if section['synapse'] is None:
-            synapse = h.Exp2Syn(sec_syn_bg_exc_df.iloc[i]['segment_synapse'])
-            synapse.e = e_syn
-            synapse.tau1 = tau1
-            synapse.tau2 = tau2
+            
+            if bg_exc_channel_type == 'Exp2Syn':
+                synapse = h.Exp2Syn(sec_syn_bg_exc_df.iloc[i]['segment_synapse']) 
+                synapse.e = e_syn
+                synapse.tau1 = tau1
+                synapse.tau2 = tau2
+            
+            elif bg_exc_channel_type == 'AMPANMDA':                
+                synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], bg_exc_channel_type)
+
         else:
             synapse = section['synapse']
 
         netstim = h.NetStim()
         netstim.interval = spike_interval
-        netstim.number = 10
+        netstim.number = 60
         netstim.start = 0
         netstim.noise = 1
 
@@ -59,21 +68,19 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval,
 
     return section_synapse_df
 
-def add_background_inh_inputs(section_synapse_df, syn_param_inh, time_interval, DURATION, FREQ_INH, num_syn_inh, lock):  
+def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, num_syn_inh_list, inh_delay, lock):  
     exc_types = ['A','C']
     sec_syn_exc_df = section_synapse_df[section_synapse_df['type'].isin(exc_types)]
 
     exc_netcons_list = sec_syn_exc_df['netcon']
-    syn_weight = syn_param_inh[-1]
+    e_syn, tau1, tau2, syn_weight = syn_param_inh
 
     spike_times = [h.Vector() for _ in exc_netcons_list]
     for nc, spike_times_vec in zip(exc_netcons_list, spike_times):
         nc.record(spike_times_vec)
 
     h.tstop = DURATION
-    # st = time.time()
     h.run()
-    # print('complex cell simulation time {:.4f}'.format(time.time()-st))
 
     total_spikes = np.zeros(DURATION)  # 初始化总spike数数组
 
@@ -86,19 +93,22 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, time_interval, 
 
     # 计算每个时间点的平均firing rate (Hz, /s)
 
-    firing_rates = total_spikes / (np.mean(total_spikes) * time_interval)
-    firing_rates_inh = firing_rates * FREQ_INH / np.mean(firing_rates)
-    # firing_rates_inh = self.FREQ_INH * total_spikes / np.sum(total_spikes)
-    lambda_array = firing_rates_inh * time_interval
+    ## there 2 approaches equal each other
+
+    # firing_rates = total_spikes / (np.mean(total_spikes) * time_interval)
+    # firing_rates_inh = firing_rates * FREQ_INH / np.mean(firing_rates)
+    # lambda_array = firing_rates_inh * time_interval
+
+    lambda_array = FREQ_INH * total_spikes / np.sum(total_spikes)
     
-    num_syn_basal_inh, num_syn_apic_inh = num_syn_inh
+    # We are generating inh inputs for apical and basal dendrites separately,
+    # but currently they look the same
+    num_syn_basal_inh, num_syn_apic_inh = num_syn_inh_list
     spike_counts_basal_inh = np.random.poisson(lambda_array, size=(num_syn_basal_inh, DURATION))
     spike_counts_apic_inh = np.random.poisson(lambda_array, size=(num_syn_apic_inh, DURATION))
 
     sec_syn_bg_inh_df = section_synapse_df[section_synapse_df['type'] == 'B']
     
-    e_syn, tau1, tau2, syn_weight = syn_param_inh
-
     def process_section(i):
         section = sec_syn_inh_df.iloc[i]
 
@@ -111,7 +121,10 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, time_interval, 
             synapse = section['synapse']
 
         counts = spike_counts_inh[i]
-        spike_train = np.where(counts >= 1)[0] + 1000 * time_interval * np.random.rand(np.sum(counts >= 1))
+        
+        # generate the spike train in which the elements are time indices of each spike (with random noise)
+        # e.g. the count is [0,1,0,0,1], then spike_train is [1, 4] with noise [0,1) ([1.1, 3.8])
+        spike_train = np.where(counts >= 1)[0] + np.random.rand(np.sum(counts >= 1))
         netstim = h.VecStim()
         netstim.play(h.Vector(spike_train))
 
@@ -119,7 +132,7 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, time_interval, 
             section['netcon'].weight[0] = 0
 
         netcon = h.NetCon(netstim, synapse)
-        netcon.delay = 0
+        netcon.delay = inh_delay # 4 ms
         netcon.weight[0] = syn_weight
 
         with lock:
@@ -129,9 +142,14 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, time_interval, 
             section_synapse_df.at[section.name, 'netcon'] = netcon
 
     for region in ['basal', 'apical']:
-
-        spike_counts_inh = spike_counts_basal_inh if region == 'basal' else spike_counts_apic_inh
-        num_syn_background_inh = num_syn_basal_inh if region == 'basal' else num_syn_apic_inh
+        
+        if region == 'basal':
+            spike_counts_inh = spike_counts_basal_inh 
+            num_syn_background_inh = num_syn_basal_inh 
+        else:
+            spike_counts_inh = spike_counts_apic_inh 
+            num_syn_background_inh = num_syn_apic_inh
+        
         sec_syn_inh_df = sec_syn_bg_inh_df[sec_syn_bg_inh_df['region'] == region]
 
         with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
@@ -144,12 +162,16 @@ def add_clustered_inputs(section_synapse_df,
                          syn_param_exc, 
                          num_clusters, 
                          basal_channel_type, 
+                         initW,
                          spt_unit_list, 
                          lock):  
     
     # sec_syn_clustered_df = section_synapse_df[section_synapse_df['type'] == 'C']
     # num_syn_clustered = len(sec_syn_clustered_df)
     syn_weight = syn_param_exc[-1]
+    
+    syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+    syn_params['initW'] = initW
     
     for j in range(num_clusters):
 
@@ -181,7 +203,7 @@ def add_clustered_inputs(section_synapse_df,
             netstim = spt_unit
 
             if section['synapse'] is None:
-                syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+                
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], basal_channel_type)
 
                 # synapse = h.AmpaNmda(sec_syn_clustered_df.iloc[i]['segment_synapse'])

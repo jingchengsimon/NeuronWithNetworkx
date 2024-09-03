@@ -40,29 +40,33 @@ def AMPANMDA(syn_params, sec_x, sec_id, basal_channel_type):
         if syn_params.get('e'):
             lsyn.e = float(syn_params['e'])
         if syn_params.get('initW'):
-            h.distance(sec=sec_id.cell().soma[0])
-            dist = h.distance(sec_id(sec_x))
-            fullsecname = sec_id.name()
-            sec_type = fullsecname.split(".")[1][:4]
-            sec_id = int(fullsecname.split("[")[-1].split("]")[0])
 
-            dend = lambda x: ( 1.001 ** x )
-            close_apic = lambda x: ( 1.002 ** x )
-            #far_apic = lambda x: ( 1.002 ** x )
-            far_apic = lambda x: 1
+            lsyn.initW = float(syn_params['initW'])
 
-            if sec_type == "dend":
-                base = float(np.clip(lognormal(pyrWeight_m, pyrWeight_s), 0, 5))
-                lsyn.initW = base * dend(dist)
-            elif sec_type == "apic":
-                if dist < 750:
-                    base = float(np.clip(lognormal(pyrWeight_m, pyrWeight_s), 0, 5))
-                    lsyn.initW = base * close_apic(dist)
-                else:
-                    base = float(np.clip(lognormal(0.17, 0.2), 0, 5))
-                    lsyn.initW = base * far_apic(dist)
+            # h.distance(sec=sec_id.cell().soma[0])
+            # dist = h.distance(sec_id(sec_x))
+            # fullsecname = sec_id.name()
+            # sec_type = fullsecname.split(".")[1][:4]
+            # sec_id = int(fullsecname.split("[")[-1].split("]")[0])
 
-            lsyn.initW = np.clip(float(lsyn.initW), 0, 5)
+            # dend = lambda x: ( 1.001 ** x )
+            # close_apic = lambda x: ( 1.002 ** x )
+            # #far_apic = lambda x: ( 1.002 ** x )
+            # far_apic = lambda x: 1
+
+            # if sec_type == "dend":
+            #     base = float(np.clip(lognormal(pyrWeight_m, pyrWeight_s), 0, 5))
+            #     lsyn.initW = base * dend(dist)
+            # elif sec_type == "apic":
+            #     if dist < 750:
+            #         base = float(np.clip(lognormal(pyrWeight_m, pyrWeight_s), 0, 5))
+            #         lsyn.initW = base * close_apic(dist)
+            #     else:
+            #         base = float(np.clip(lognormal(0.17, 0.2), 0, 5))
+            #         lsyn.initW = base * far_apic(dist)
+
+            # lsyn.initW = np.clip(float(lsyn.initW), 0, 5)
+
         if syn_params.get('u0'):
             lsyn.u0 = float(syn_params['u0'])
         return lsyn
