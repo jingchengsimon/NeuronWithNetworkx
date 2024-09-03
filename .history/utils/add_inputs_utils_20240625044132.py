@@ -16,6 +16,9 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval,
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'] == 'A']
     num_syn_background_exc = len(sec_syn_bg_exc_df)
 
+    syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+    syn_params['initW'] = initW
+    
     def process_section(i):
         section = sec_syn_bg_exc_df.iloc[i]
         e_syn, tau1, tau2, syn_weight = syn_param_exc
@@ -28,18 +31,23 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval,
                 synapse.tau1 = tau1
                 synapse.tau2 = tau2
             
+<<<<<<<< HEAD:.history/utils/add_inputs_utils_20240625044132.py
             elif bg_exc_channel_type == 'AMPANMDA':
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
                 syn_params['initW'] = initW
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], 'AMPANMDA')
 
+========
+            elif bg_exc_channel_type == 'AMPANMDA':                
+                synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], bg_exc_channel_type)
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/utils/add_inputs_utils_20240903094202.py
 
         else:
             synapse = section['synapse']
 
         netstim = h.NetStim()
         netstim.interval = spike_interval
-        netstim.number = 10
+        netstim.number = 60
         netstim.start = 0
         netstim.noise = 1
 
@@ -68,7 +76,11 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, spike_interval,
 
     return section_synapse_df
 
+<<<<<<<< HEAD:.history/utils/add_inputs_utils_20240625044132.py
 def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, num_syn_inh_list, lock):  
+========
+def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, num_syn_inh_list, inh_delay, lock):  
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/utils/add_inputs_utils_20240903094202.py
     exc_types = ['A','C']
     sec_syn_exc_df = section_synapse_df[section_synapse_df['type'].isin(exc_types)]
 
@@ -101,6 +113,11 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
 
     lambda_array = FREQ_INH * total_spikes / np.sum(total_spikes)
     
+<<<<<<<< HEAD:.history/utils/add_inputs_utils_20240625044132.py
+========
+    # We are generating inh inputs for apical and basal dendrites separately,
+    # but currently they look the same
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/utils/add_inputs_utils_20240903094202.py
     num_syn_basal_inh, num_syn_apic_inh = num_syn_inh_list
     spike_counts_basal_inh = np.random.poisson(lambda_array, size=(num_syn_basal_inh, DURATION))
     spike_counts_apic_inh = np.random.poisson(lambda_array, size=(num_syn_apic_inh, DURATION))
@@ -130,7 +147,11 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
             section['netcon'].weight[0] = 0
 
         netcon = h.NetCon(netstim, synapse)
+<<<<<<<< HEAD:.history/utils/add_inputs_utils_20240625044132.py
         netcon.delay = 5 # ms
+========
+        netcon.delay = inh_delay # 4 ms
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/utils/add_inputs_utils_20240903094202.py
         netcon.weight[0] = syn_weight
 
         with lock:
@@ -140,9 +161,14 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
             section_synapse_df.at[section.name, 'netcon'] = netcon
 
     for region in ['basal', 'apical']:
-
-        spike_counts_inh = spike_counts_basal_inh if region == 'basal' else spike_counts_apic_inh
-        num_syn_background_inh = num_syn_basal_inh if region == 'basal' else num_syn_apic_inh
+        
+        if region == 'basal':
+            spike_counts_inh = spike_counts_basal_inh 
+            num_syn_background_inh = num_syn_basal_inh 
+        else:
+            spike_counts_inh = spike_counts_apic_inh 
+            num_syn_background_inh = num_syn_apic_inh
+        
         sec_syn_inh_df = sec_syn_bg_inh_df[sec_syn_bg_inh_df['region'] == region]
 
         with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
@@ -162,6 +188,9 @@ def add_clustered_inputs(section_synapse_df,
     # sec_syn_clustered_df = section_synapse_df[section_synapse_df['type'] == 'C']
     # num_syn_clustered = len(sec_syn_clustered_df)
     syn_weight = syn_param_exc[-1]
+    
+    syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+    syn_params['initW'] = initW
     
     for j in range(num_clusters):
 
@@ -193,8 +222,12 @@ def add_clustered_inputs(section_synapse_df,
             netstim = spt_unit
 
             if section['synapse'] is None:
+<<<<<<<< HEAD:.history/utils/add_inputs_utils_20240625044132.py
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
                 syn_params['initW'] = initW
+========
+                
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/utils/add_inputs_utils_20240903094202.py
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], basal_channel_type)
 
                 # synapse = h.AmpaNmda(sec_syn_clustered_df.iloc[i]['segment_synapse'])

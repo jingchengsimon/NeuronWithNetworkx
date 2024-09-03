@@ -208,6 +208,9 @@ def add_clustered_inputs(section_synapse_df,
 
     syn_weight = syn_param_exc[-1]
     
+    syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
+    syn_params['initW'] = initW
+    
     for j in range(num_clusters):
 
         sec_syn_clustered_df = section_synapse_df[(section_synapse_df['type'] == 'C') & 

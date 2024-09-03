@@ -72,6 +72,10 @@ def build_cell(**params):
     with open(json_filename, 'w') as json_file:
         json.dump(simulation_params, json_file, indent=4)
 
+<<<<<<<< HEAD:.history/main_20240903094025.py
+    cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, DURATION)
+========
+<<<<<<< HEAD
     cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, DURATION)
     cell1.add_synapses(NUM_SYN_BASAL_EXC, 
                        NUM_SYN_APIC_EXC, 
@@ -88,6 +92,29 @@ def build_cell(**params):
 # def run_threads_or_processes(parameters_list):
 #     threads_or_processes = []
 #     for params sin parameters_list:
+=======
+    cell1 = CellWithNetworkx(swc_file_path, bg_syn_freq)
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094023.py
+    cell1.add_synapses(NUM_SYN_BASAL_EXC, 
+                       NUM_SYN_APIC_EXC, 
+                       NUM_SYN_BASAL_INH, 
+                       NUM_SYN_APIC_INH)
+    
+    cell1.assign_clustered_synapses(basal_channel_type, sec_type,
+                                    distance_to_root, num_clusters, cluster_radius, 
+                                    num_stim, stim_time, num_conn_per_preunit, num_preunit,
+                                    folder_path) 
+    
+    cell1.add_inputs(folder_path, bg_exc_channel_type, initW, inh_delay, num_trials)
+
+# def run_threads_or_processes(parameters_list):
+#     threads_or_processes = []
+<<<<<<<< HEAD:.history/main_20240903094025.py
+#     for params sin parameters_list:
+========
+#     for params in parameters_list:
+>>>>>>> 5ae65fad7baf180b2dabd9ed5d1ca6386d7d131b
+>>>>>>>> 095bae32bab1e5a13ca27f9ad8d14505f1ce6a39:.history/main_20240903094023.py
 #         # 使用 **params 解包字典，并传递给 your_function
 #         thread_or_process = threading.Thread(target=your_function, kwargs=params)
 #         threads_or_processes.append(thread_or_process)

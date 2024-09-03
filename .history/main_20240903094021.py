@@ -158,8 +158,8 @@ if __name__ == "__main__":
     param1_diff = {
         'basal channel type': 'AMPANMDA',
         'distance from basal clusters to soma': 1,
-        'number of clusters': 10,
-        'number of synapses in each cluster': 20,
+        'number of clusters': 5,
+        'number of synapses in each cluster': 10,
         'cluster radius': 5,
         'background synapse frequency': 1,
         'number of stimuli': 5,
