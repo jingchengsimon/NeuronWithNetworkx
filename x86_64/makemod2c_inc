@@ -1,176 +1,176 @@
-./CaDynamics_E2.c: .././CaDynamics_E2.mod
+./ampanmda.c: .././mod//ampanmda.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "CaDynamics_E2.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./CaDynamics_E2.o: ./CaDynamics_E2.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./Ca_HVA.c: .././Ca_HVA.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ca_HVA.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./Ca_HVA.o: ./Ca_HVA.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./Ca_LVAst.c: .././Ca_LVAst.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ca_LVAst.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./Ca_LVAst.o: ./Ca_LVAst.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./Ih.c: .././Ih.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ih.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./Ih.o: ./Ih.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./Im.c: .././Im.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Im.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./Im.o: ./Im.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./K_Pst.c: .././K_Pst.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "K_Pst.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./K_Pst.o: ./K_Pst.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./K_Tst.c: .././K_Tst.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "K_Tst.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./K_Tst.o: ./K_Tst.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./NaTa_t.c: .././NaTa_t.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTa_t.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./NaTa_t.o: ./NaTa_t.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./NaTg.c: .././NaTg.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTg.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./NaTg.o: ./NaTg.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./NaTs2_t.c: .././NaTs2_t.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTs2_t.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./NaTs2_t.o: ./NaTs2_t.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./Nap_Et2.c: .././Nap_Et2.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Nap_Et2.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./Nap_Et2.o: ./Nap_Et2.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./ProbAMPA.c: .././ProbAMPA.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ProbAMPA.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./ProbAMPA.o: ./ProbAMPA.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./ProbAMPANMDA2.c: .././ProbAMPANMDA2.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ProbAMPANMDA2.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./ProbAMPANMDA2.o: ./ProbAMPANMDA2.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./SK_E2.c: .././SK_E2.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "SK_E2.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./SK_E2.o: ./SK_E2.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./SKv3_1.c: .././SKv3_1.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "SKv3_1.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
-
-./SKv3_1.o: ./SKv3_1.c
-	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
-
-./ampanmda.c: .././ampanmda.mod
-	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ampanmda.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ampanmda.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./ampanmda.o: ./ampanmda.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./epsp.c: .././epsp.mod
+./CaDynamics_E2.c: .././mod//CaDynamics_E2.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "epsp.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "CaDynamics_E2.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./CaDynamics_E2.o: ./CaDynamics_E2.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./Ca_HVA.c: .././mod//Ca_HVA.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ca_HVA.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./Ca_HVA.o: ./Ca_HVA.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./Ca_LVAst.c: .././mod//Ca_LVAst.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ca_LVAst.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./Ca_LVAst.o: ./Ca_LVAst.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./epsp.c: .././mod//epsp.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "epsp.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./epsp.o: ./epsp.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./int2pyr.c: .././int2pyr.mod
+./Ih.c: .././mod//Ih.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "int2pyr.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Ih.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./Ih.o: ./Ih.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./Im.c: .././mod//Im.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Im.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./Im.o: ./Im.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./int2pyr.c: .././mod//int2pyr.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "int2pyr.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./int2pyr.o: ./int2pyr.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./netgaba.c: .././netgaba.mod
+./K_Pst.c: .././mod//K_Pst.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "netgaba.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "K_Pst.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./K_Pst.o: ./K_Pst.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./K_Tst.c: .././mod//K_Tst.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "K_Tst.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./K_Tst.o: ./K_Tst.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./Nap_Et2.c: .././mod//Nap_Et2.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "Nap_Et2.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./Nap_Et2.o: ./Nap_Et2.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./NaTa_t.c: .././mod//NaTa_t.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTa_t.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./NaTa_t.o: ./NaTa_t.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./NaTg.c: .././mod//NaTg.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTg.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./NaTg.o: ./NaTg.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./NaTs2_t.c: .././mod//NaTs2_t.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "NaTs2_t.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./NaTs2_t.o: ./NaTs2_t.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./netgaba.c: .././mod//netgaba.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "netgaba.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./netgaba.o: ./netgaba.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./netglutamate.c: .././netglutamate.mod
+./netglutamate.c: .././mod//netglutamate.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "netglutamate.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "netglutamate.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./netglutamate.o: ./netglutamate.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./pyr2pyr.c: .././pyr2pyr.mod
+./ProbAMPA.c: .././mod//ProbAMPA.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "pyr2pyr.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ProbAMPA.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./ProbAMPA.o: ./ProbAMPA.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./ProbAMPANMDA2.c: .././mod//ProbAMPANMDA2.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "ProbAMPANMDA2.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./ProbAMPANMDA2.o: ./ProbAMPANMDA2.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./pyr2pyr.c: .././mod//pyr2pyr.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "pyr2pyr.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./pyr2pyr.o: ./pyr2pyr.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 
-./vecevent.c: .././vecevent.mod
+./SK_E2.c: .././mod//SK_E2.mod
 	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
-	(cd "../.";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "vecevent.mod" -o "/home/mimo/Desktop/NeuronWithNetworkx/mod/x86_64")
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "SK_E2.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./SK_E2.o: ./SK_E2.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./SKv3_1.c: .././mod//SKv3_1.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "SKv3_1.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
+
+./SKv3_1.o: ./SKv3_1.c
+	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
+
+./vecevent.c: .././mod//vecevent.mod
+	@printf " -> $(C_GREEN)NMODL$(C_RESET) $<\\n"
+	(cd ".././mod";  MODLUNIT=$(NRNUNITS) $(NOCMODL) "vecevent.mod" -o "/G/MIMOlab/Codes/NeuronWithNetworkx/x86_64")
 
 ./vecevent.o: ./vecevent.c
 	@printf " -> $(C_GREEN)Compiling$(C_RESET) $<\\n"
-	$(COMPILE) -I"../." $(INCLUDES) -fPIC -c $< -o $@
+	$(COMPILE) -I".././mod" $(INCLUDES) -fPIC -c $< -o $@
 

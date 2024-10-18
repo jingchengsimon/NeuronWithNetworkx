@@ -334,7 +334,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
  pnt_receive_init[_mechtype] = _net_init;
  pnt_receive_size[_mechtype] = 7;
  	hoc_register_var(hoc_scdoub, hoc_vdoub, hoc_intfunc);
- 	ivoc_help("help ?1 ProbAMPANMDA2 /home/mimo/Desktop/NeuronWithNetworkx/mod/ProbAMPANMDA2.mod\n");
+ 	ivoc_help("help ?1 ProbAMPANMDA2 /G/MIMOlab/Codes/NeuronWithNetworkx/mod/ProbAMPANMDA2.mod\n");
  hoc_register_limits(_mechtype, _hoc_parm_limits);
  hoc_register_units(_mechtype, _hoc_parm_units);
  }
@@ -747,7 +747,7 @@ _first = 0;
 }
 
 #if NMODL_TEXT
-static const char* nmodl_filename = "/home/mimo/Desktop/NeuronWithNetworkx/mod/ProbAMPANMDA2.mod";
+static const char* nmodl_filename = "/G/MIMOlab/Codes/NeuronWithNetworkx/mod/ProbAMPANMDA2.mod";
 static const char* nmodl_file_text = 
   "TITLE AMPA and NMDA receptor with presynaptic short-term plasticity \n"
   "\n"

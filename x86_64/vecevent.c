@@ -213,7 +213,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
  pnt_receive[_mechtype] = _net_receive;
  pnt_receive_size[_mechtype] = 1;
  	hoc_register_var(hoc_scdoub, hoc_vdoub, hoc_intfunc);
- 	ivoc_help("help ?1 VecStim /home/mimo/Desktop/NeuronWithNetworkx/mod/vecevent.mod\n");
+ 	ivoc_help("help ?1 VecStim /G/MIMOlab/Codes/NeuronWithNetworkx/mod/vecevent.mod\n");
  hoc_register_limits(_mechtype, _hoc_parm_limits);
  hoc_register_units(_mechtype, _hoc_parm_units);
  }
@@ -366,7 +366,7 @@ _first = 0;
 }
 
 #if NMODL_TEXT
-static const char* nmodl_filename = "/home/mimo/Desktop/NeuronWithNetworkx/mod/vecevent.mod";
+static const char* nmodl_filename = "/G/MIMOlab/Codes/NeuronWithNetworkx/mod/vecevent.mod";
 static const char* nmodl_file_text = 
   ":  Vector stream of events\n"
   "\n"
