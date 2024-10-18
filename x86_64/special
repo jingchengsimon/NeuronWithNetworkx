@@ -1,4 +1,4 @@
-#!/home/mimo/anaconda3/envs/neuron/bin/python
+#!/G/anaconda3/bin/python
 """
 A generic wrapper to access nrn binaries from a python installation
 Please create a softlink with the binary name to be called.
