@@ -16,7 +16,7 @@ def generate_simu_params():
 
     basal_channel_type = ['AMPANMDA']
     sec_type = ['basal', 'apical'] 
-    dis_to_root = [0, 1, 2]
+    dis_to_root = [1]
     cluster_radius =  [5]
 
     bg_exc_freq = [2] # basal

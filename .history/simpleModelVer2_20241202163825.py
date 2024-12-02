@@ -205,8 +205,7 @@ class CellWithNetworkx:
                                  if threshold <= len(sorted_tuft_distances)] + [max(sorted_tuft_distances)]
 
         num_preunit = num_syn_per_clus * num_clusters
-        num_preunit = 32 * num_clusters # set the maximum
-
+        
         if spat_condition == 'clus':
             # Number of synapses in each cluster is not fixed
             self.pref_ori_dg, self.unit_ids, indices = generate_indices(self.rnd, num_clusters, 
@@ -244,6 +243,7 @@ class CellWithNetworkx:
         self.num_preunit = num_preunit
 
         for i in range(self.num_clusters):
+        for i in range(24)
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A')]
 
             if sec_type == 'basal':

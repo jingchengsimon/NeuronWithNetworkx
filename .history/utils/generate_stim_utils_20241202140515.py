@@ -10,7 +10,7 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
     results = [] 
     indices = []
 
-    # choose num_conn clusters without replacement (replace=False)
+    # choose num_conn clusters without replacement (replace=True)
     for _ in range(num_preunit):    
         sampled = rnd.choice(num_clusters, num_conn_per_preunit, replace=False)  
         results.append(sampled)

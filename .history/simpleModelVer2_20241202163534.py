@@ -204,8 +204,8 @@ class CellWithNetworkx:
         dist_thres_tuft = [0] + [sorted_tuft_distances[threshold - 1] for threshold in num_syn_thres 
                                  if threshold <= len(sorted_tuft_distances)] + [max(sorted_tuft_distances)]
 
+        self.num_clusters_sampled  = num_clusters
         num_preunit = num_syn_per_clus * num_clusters
-        num_preunit = 32 * num_clusters # set the maximum
 
         if spat_condition == 'clus':
             # Number of synapses in each cluster is not fixed
@@ -222,7 +222,6 @@ class CellWithNetworkx:
 
             num_clusters = num_preunit * num_conn_per_preunit
 
-        self.num_clusters_sampled  = num_clusters if num_clusters <= 50 else 50
         self.indices = indices
 
         # Save assignment

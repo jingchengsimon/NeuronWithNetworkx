@@ -204,8 +204,8 @@ class CellWithNetworkx:
         dist_thres_tuft = [0] + [sorted_tuft_distances[threshold - 1] for threshold in num_syn_thres 
                                  if threshold <= len(sorted_tuft_distances)] + [max(sorted_tuft_distances)]
 
+        self.num_clusters_sampled  = num_clusters
         num_preunit = num_syn_per_clus * num_clusters
-        num_preunit = 32 * num_clusters # set the maximum
 
         if spat_condition == 'clus':
             # Number of synapses in each cluster is not fixed
@@ -222,7 +222,6 @@ class CellWithNetworkx:
 
             num_clusters = num_preunit * num_conn_per_preunit
 
-        self.num_clusters_sampled  = num_clusters if num_clusters <= 50 else 50
         self.indices = indices
 
         # Save assignment
@@ -676,7 +675,7 @@ def build_cell(**params):
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag
 
     simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition 
-    # simu_folder = 'test_basal_range1'
+    simu_folder = 'test_basal_range1'
     # get the remainder of the folder_tag to 42, use 42 instead of 0 for exact division
     folder_tag = str(int(folder_tag) % 42) if int(folder_tag) % 42 != 0 else '42'
     folder_path = '/G/results/simulation/' + simu_folder + '/' + folder_tag + '/' + str(epoch)
