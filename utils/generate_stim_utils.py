@@ -10,9 +10,9 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
     results = [] 
     indices = []
 
-    # choose num_conn clusters with replacement (replace=True)
+    # choose num_conn clusters without replacement (replace=False)
     for _ in range(num_preunit):    
-        sampled = rnd.choice(num_clusters, num_conn_per_preunit, replace=True)  
+        sampled = rnd.choice(num_clusters, num_conn_per_preunit, replace=False)  
         results.append(sampled)
 
     # Without replacement, each preunit will only contact each cluster once
