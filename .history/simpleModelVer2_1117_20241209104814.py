@@ -282,13 +282,11 @@ class CellWithNetworkx:
             dis_syn_from_ctr = np.array(np.abs(syn_ctr['loc'] - syn_surround_ctr['loc']) * syn_ctr_sec.L)
             # use exponential distribution to generate loc
             max_num_syn_per_cluster = max(num_syn_per_cluster, 100)
-
-            max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
-            # try:
-            #     dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, num_syn_per_cluster - 1))
-            #     max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
-            # except ValueError:
-            #     dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, 0))
+            try:
+                dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, num_syn_per_cluster - 1))
+                max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
+            except ValueError:
+                dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, 0))
 
             # not enough synapses on the same section
             syn_ctr_sec_id = syn_ctr['section_id_synapse']
@@ -356,7 +354,7 @@ class CellWithNetworkx:
                 except IndexError:
                     self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = -1
 
-    def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
+    def add_inputs(self, folder_path, simu_condition, spat_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
         self.bg_exc_channel_type = bg_exc_channel_type
@@ -445,7 +443,7 @@ class CellWithNetworkx:
                     # Run the simulation
                     num_aff_idx = self.num_activated_preunit_list.index(num_activated_preunit)
 
-                    self.run_simulation(num_stim, num_aff_idx, num_trial, folder_path)
+                    self.run_simulation(num_stim, num_aff_idx, num_trial, spat_condition, folder_path)
                     # if not self.run_simulation(num_stim, num_aff_idx, num_trial):
                     #     break  # Skip to the next epoch if the condition is not met
                     # condition_met = True
@@ -473,7 +471,7 @@ class CellWithNetworkx:
 
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
         
-    def run_simulation(self, num_stim, num_aff_fiber, num_trial, folder_path):
+    def run_simulation(self, num_stim, num_aff_fiber, num_trial, spat_condition, folder_path):
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_v)
@@ -527,6 +525,11 @@ class CellWithNetworkx:
             cluster_ctr = self.section_synapse_df[(self.section_synapse_df['cluster_id'] == cluster_id) &
                                                   (self.section_synapse_df['cluster_center_flag'] == 1)]['segment_synapse'].values[0]
             
+            # if spat_condition == 'clus':
+            #     cluster_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['segment_synapse'].values[0]
+            # elif spat_condition == 'distr':
+            #     cluster_ctr = self.section_synapse_df[self.section_synapse_df['type'] == 'C']['segment_synapse'].values[cluster_id]
+
             dend_v = h.Vector().record(cluster_ctr._ref_v)
 
             clustered_sec = np.unique(self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['section_synapse'])
@@ -739,7 +742,7 @@ def build_cell(**params):
                                     spat_condtion, num_conn_per_preunit, num_syn_per_clus,
                                     folder_path) 
 
-    cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
+    cell1.add_inputs(folder_path, simu_condition, spat_condtion, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, inh_delay, num_trials)
 
 

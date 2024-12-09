@@ -739,7 +739,7 @@ def build_cell(**params):
                                     spat_condtion, num_conn_per_preunit, num_syn_per_clus,
                                     folder_path) 
 
-    cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
+    cell1.add_inputs(folder_path, simu_condition, spat_condtion, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, inh_delay, num_trials)
 
 

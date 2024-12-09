@@ -26,7 +26,7 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
             min_clusters = [i for i in available_clusters if connections_per_cluster[i] == min_connections]
             
             # Randomly choose one of the clusters with the minimum number of connections
-            chosen_cluster = rnd.choice(min_clusters)
+            chosen_cluster = np.random.choice(min_clusters)
             
             # Add the chosen cluster to the sampled list and update the connection counter
             sampled.append(chosen_cluster)
