@@ -12,11 +12,11 @@ def generate_simu_params():
     DURATION = [1000] # 1000 ms
     
     simu_condition = ['invitro']
-    spat_condition = ['clus'] # clus or distr
+    spat_condition = ['distr'] # clus or distr
 
     basal_channel_type = ['AMPANMDA']
     sec_type = ['basal'] 
-    dis_to_root = [1]
+    dis_to_root = [2]
     cluster_radius =  [5]
 
     bg_exc_freq = [2] # basal

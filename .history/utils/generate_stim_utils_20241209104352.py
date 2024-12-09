@@ -8,35 +8,33 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
     
     results = [] 
     indices = []
-    connections_per_cluster = [0] * num_clusters
 
-    # Choose num_conn clusters without replacement (replace=False)
-    # for _ in range(num_preunit):    
-    #     sampled = rnd.choice(num_clusters, num_conn_per_preunit, replace=False)  
-    #     results.append(sampled)
-
-    # Updated version
-    # Round-robin approach to evenly distribute connections without replacement
-    for _ in range(num_preunit):
-        sampled = []
-        available_clusters = list(range(num_clusters))
-        for _ in range(num_conn_per_preunit):
-            # Find the cluster with the minimum number of connections
-            min_connections = min(connections_per_cluster)
-            min_clusters = [i for i in available_clusters if connections_per_cluster[i] == min_connections]
-            
-            # Randomly choose one of the clusters with the minimum number of connections
-            chosen_cluster = rnd.choice(min_clusters)
-            
-            # Add the chosen cluster to the sampled list and update the connection counter
-            sampled.append(chosen_cluster)
-            connections_per_cluster[chosen_cluster] += 1
-            
-            # Remove the chosen cluster from the available clusters
-            available_clusters.remove(chosen_cluster)
-        
+    # choose num_conn clusters without replacement (replace=False)
+    for _ in range(num_preunit):    
+        sampled = rnd.choice(num_clusters, num_conn_per_preunit, replace=False)  
         results.append(sampled)
+
+    # Round-robin approach to evenly distribute connections without replacement
+for _ in range(num_preunit):
+    sampled = []
+    available_clusters = list(range(num_clusters))
+    for _ in range(num_conn_per_preunit):
+        # Find the cluster with the minimum number of connections
+        min_connections = min(connections_per_cluster)
+        min_clusters = [i for i in available_clusters if connections_per_cluster[i] == min_connections]
         
+        # Randomly choose one of the clusters with the minimum number of connections
+        chosen_cluster = np.random.choice(min_clusters)
+        
+        # Add the chosen cluster to the sampled list and update the connection counter
+        sampled.append(chosen_cluster)
+        connections_per_cluster[chosen_cluster] += 1
+        
+        # Remove the chosen cluster from the available clusters
+        available_clusters.remove(chosen_cluster)
+    
+    results.append(sampled)
+    
     # Without replacement, each preunit will only contact each cluster once
     # With replacement, each preunit may contact each cluster multiple times
     for i in range(num_clusters):

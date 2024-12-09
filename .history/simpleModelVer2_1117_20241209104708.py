@@ -273,90 +273,88 @@ class CellWithNetworkx:
             # Assign the surround as clustered synapse only if more than 1 syn per cluster (dispersed: 1 syn per cluster)
             if num_syn_per_cluster <= 1:
                 continue
-
-            syn_ctr_sec = syn_ctr['section_synapse']
-            syn_surround_ctr = sec_syn_bg_exc_ordered_df[
-                (sec_syn_bg_exc_ordered_df['section_synapse'] == syn_ctr_sec) & 
-                (sec_syn_bg_exc_ordered_df.index != syn_ctr.name)]
-
-            dis_syn_from_ctr = np.array(np.abs(syn_ctr['loc'] - syn_surround_ctr['loc']) * syn_ctr_sec.L)
-            # use exponential distribution to generate loc
-            max_num_syn_per_cluster = max(num_syn_per_cluster, 100)
-
-            max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
-            # try:
-            #     dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, num_syn_per_cluster - 1))
-            #     max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
-            # except ValueError:
-            #     dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, 0))
-
-            # not enough synapses on the same section
-            syn_ctr_sec_id = syn_ctr['section_id_synapse']
-            syn_suc_sec_id = syn_ctr_sec_id
-            syn_pre_sec_id = syn_ctr_sec_id
             
-            while len(dis_syn_from_ctr) < max_num_syn_per_cluster - 1:
-            # while len(dis_syn_from_ctr) < num_syn_per_cluster - 1:
-                # the children section of the center section
-                if list(self.DiG.successors(syn_suc_sec_id)):
-                    # iterate
-                    syn_suc_sec_id = self.rnd.choice(list(self.DiG.successors(syn_suc_sec_id)))
-                    try:
-                        syn_suc_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]['section_synapse'].values[0]
-                        syn_suc_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]
-                        dis_syn_suc_from_ctr = np.array((1 - syn_ctr['loc']) * syn_ctr_sec.L + syn_suc_surround_ctr['loc'] * syn_suc_sec.L)
-                    except IndexError:
-                        pass
-                        # print(f"IndexError: syn_suc_sec_id: {syn_suc_sec_id}")
+                syn_ctr_sec = syn_ctr['section_synapse']
+                syn_surround_ctr = sec_syn_bg_exc_ordered_df[
+                    (sec_syn_bg_exc_ordered_df['section_synapse'] == syn_ctr_sec) & 
+                    (sec_syn_bg_exc_ordered_df.index != syn_ctr.name)]
 
-                # the parent section of the center section
-                # there is no dendritic section on the soma, so we should not choose soma as the parent section
-                # also don't choose the apical nexus section as the parent section
-                if list(self.DiG.predecessors(syn_pre_sec_id)) not in ([], [0], [121]):
-                    syn_pre_sec_id = self.rnd.choice(list(self.DiG.predecessors(syn_pre_sec_id)))
-                    try:
-                        syn_pre_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]['section_synapse'].values[0]
-                        syn_pre_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]
-                        dis_syn_pre_from_ctr = np.array(syn_ctr['loc'] * syn_ctr_sec.L + (1 - syn_pre_surround_ctr['loc']) * syn_pre_sec.L)
-                    except IndexError:
-                        pass
-                        # print(f"IndexError: syn_pre_sec_id: {syn_pre_sec_id}")
-
-                arr_to_concat = []
-                df_to_concat = []
-
-                if ('dis_syn_from_ctr' in locals()) and ('syn_surround_ctr' in locals()): 
-                    arr_to_concat.append(dis_syn_from_ctr)
-                    df_to_concat.append(syn_surround_ctr)
-
-                if ('dis_syn_suc_from_ctr' in locals()) and ('syn_suc_surround_ctr' in locals()):
-                    arr_to_concat.append(dis_syn_suc_from_ctr)
-                    df_to_concat.append(syn_suc_surround_ctr)
-                
-                if ('dis_syn_pre_from_ctr' in locals()) and ('syn_pre_surround_ctr' in locals()):
-                    arr_to_concat.append(dis_syn_pre_from_ctr)
-                    df_to_concat.append(syn_pre_surround_ctr)
-
-                if arr_to_concat:
-                    dis_syn_from_ctr = np.concatenate(arr_to_concat)
-
-                if df_to_concat:
-                    syn_surround_ctr = pd.concat(df_to_concat)
-
-            max_cluster_member_index = distance_synapse_mark_compare(dis_syn_from_ctr, max_dis_mark_from_ctr)
-            cluster_member_index = self.rnd.choice(max_cluster_member_index, num_syn_per_cluster - 1, replace=False)
-            
-            # assign the surround as clustered synapse
-            self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'type'] = 'C'
-            self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'cluster_center_flag'] = 0
-            self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'cluster_id'] = i
-            for j in range(len(cluster_member_index)):
+                dis_syn_from_ctr = np.array(np.abs(syn_ctr['loc'] - syn_surround_ctr['loc']) * syn_ctr_sec.L)
+                # use exponential distribution to generate loc
+                max_num_syn_per_cluster = max(num_syn_per_cluster, )
                 try:
-                    self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = index_list[j+1]
-                except IndexError:
-                    self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = -1
+                    dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, num_syn_per_cluster - 1))
+                    max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
+                except ValueError:
+                    dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, 0))
 
-    def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
+                # not enough synapses on the same section
+                syn_ctr_sec_id = syn_ctr['section_id_synapse']
+                syn_suc_sec_id = syn_ctr_sec_id
+                syn_pre_sec_id = syn_ctr_sec_id
+                
+                while len(dis_syn_from_ctr) < max_num_syn_per_cluster - 1:
+                # while len(dis_syn_from_ctr) < num_syn_per_cluster - 1:
+                    # the children section of the center section
+                    if list(self.DiG.successors(syn_suc_sec_id)):
+                        # iterate
+                        syn_suc_sec_id = self.rnd.choice(list(self.DiG.successors(syn_suc_sec_id)))
+                        try:
+                            syn_suc_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]['section_synapse'].values[0]
+                            syn_suc_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]
+                            dis_syn_suc_from_ctr = np.array((1 - syn_ctr['loc']) * syn_ctr_sec.L + syn_suc_surround_ctr['loc'] * syn_suc_sec.L)
+                        except IndexError:
+                            pass
+                            # print(f"IndexError: syn_suc_sec_id: {syn_suc_sec_id}")
+
+                    # the parent section of the center section
+                    # there is no dendritic section on the soma, so we should not choose soma as the parent section
+                    # also don't choose the apical nexus section as the parent section
+                    if list(self.DiG.predecessors(syn_pre_sec_id)) not in ([], [0], [121]):
+                        syn_pre_sec_id = self.rnd.choice(list(self.DiG.predecessors(syn_pre_sec_id)))
+                        try:
+                            syn_pre_sec = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]['section_synapse'].values[0]
+                            syn_pre_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_pre_sec_id]
+                            dis_syn_pre_from_ctr = np.array(syn_ctr['loc'] * syn_ctr_sec.L + (1 - syn_pre_surround_ctr['loc']) * syn_pre_sec.L)
+                        except IndexError:
+                            pass
+                            # print(f"IndexError: syn_pre_sec_id: {syn_pre_sec_id}")
+
+                    arr_to_concat = []
+                    df_to_concat = []
+
+                    if ('dis_syn_from_ctr' in locals()) and ('syn_surround_ctr' in locals()): 
+                        arr_to_concat.append(dis_syn_from_ctr)
+                        df_to_concat.append(syn_surround_ctr)
+
+                    if ('dis_syn_suc_from_ctr' in locals()) and ('syn_suc_surround_ctr' in locals()):
+                        arr_to_concat.append(dis_syn_suc_from_ctr)
+                        df_to_concat.append(syn_suc_surround_ctr)
+                    
+                    if ('dis_syn_pre_from_ctr' in locals()) and ('syn_pre_surround_ctr' in locals()):
+                        arr_to_concat.append(dis_syn_pre_from_ctr)
+                        df_to_concat.append(syn_pre_surround_ctr)
+
+                    if arr_to_concat:
+                        dis_syn_from_ctr = np.concatenate(arr_to_concat)
+
+                    if df_to_concat:
+                        syn_surround_ctr = pd.concat(df_to_concat)
+
+                max_cluster_member_index = distance_synapse_mark_compare(dis_syn_from_ctr, max_dis_mark_from_ctr)
+                cluster_member_index = self.rnd.choice(max_cluster_member_index, num_syn_per_cluster - 1, replace=False)
+                
+                # assign the surround as clustered synapse
+                self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'type'] = 'C'
+                self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'cluster_center_flag'] = 0
+                self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index, 'cluster_id'] = i
+                for j in range(len(cluster_member_index)):
+                    try:
+                        self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = index_list[j+1]
+                    except IndexError:
+                        self.section_synapse_df.loc[syn_surround_ctr.iloc[cluster_member_index].index[j], 'pre_unit_id'] = -1
+
+    def add_inputs(self, folder_path, simu_condition, spat_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, inh_delay, num_trials):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
         self.bg_exc_channel_type = bg_exc_channel_type
@@ -445,7 +443,7 @@ class CellWithNetworkx:
                     # Run the simulation
                     num_aff_idx = self.num_activated_preunit_list.index(num_activated_preunit)
 
-                    self.run_simulation(num_stim, num_aff_idx, num_trial, folder_path)
+                    self.run_simulation(num_stim, num_aff_idx, num_trial, spat_condition, folder_path)
                     # if not self.run_simulation(num_stim, num_aff_idx, num_trial):
                     #     break  # Skip to the next epoch if the condition is not met
                     # condition_met = True
@@ -473,7 +471,7 @@ class CellWithNetworkx:
 
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
         
-    def run_simulation(self, num_stim, num_aff_fiber, num_trial, folder_path):
+    def run_simulation(self, num_stim, num_aff_fiber, num_trial, spat_condition, folder_path):
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_v)
@@ -527,6 +525,11 @@ class CellWithNetworkx:
             cluster_ctr = self.section_synapse_df[(self.section_synapse_df['cluster_id'] == cluster_id) &
                                                   (self.section_synapse_df['cluster_center_flag'] == 1)]['segment_synapse'].values[0]
             
+            # if spat_condition == 'clus':
+            #     cluster_ctr = self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['segment_synapse'].values[0]
+            # elif spat_condition == 'distr':
+            #     cluster_ctr = self.section_synapse_df[self.section_synapse_df['type'] == 'C']['segment_synapse'].values[cluster_id]
+
             dend_v = h.Vector().record(cluster_ctr._ref_v)
 
             clustered_sec = np.unique(self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['section_synapse'])
@@ -739,7 +742,7 @@ def build_cell(**params):
                                     spat_condtion, num_conn_per_preunit, num_syn_per_clus,
                                     folder_path) 
 
-    cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
+    cell1.add_inputs(folder_path, simu_condition, spat_condtion, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, inh_delay, num_trials)
 
 

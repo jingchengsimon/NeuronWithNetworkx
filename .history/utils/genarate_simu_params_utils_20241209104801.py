@@ -12,11 +12,11 @@ def generate_simu_params():
     DURATION = [1000] # 1000 ms
     
     simu_condition = ['invitro']
-    spat_condition = ['clus'] # clus or distr
+    spat_condition = ['distr'] # clus or distr
 
     basal_channel_type = ['AMPANMDA']
     sec_type = ['basal'] 
-    dis_to_root = [1]
+    dis_to_root = [2]
     cluster_radius =  [5]
 
     bg_exc_freq = [2] # basal
@@ -31,7 +31,7 @@ def generate_simu_params():
 
     num_clusters = [1, 2, 3, 6, 9, 18, 24] 
     num_conn_per_preunit = [3] # 3
-    num_syn_per_clus = [3, 6, 12, 24, 48, 72, 96] 
+    num_syn_per_clus = [3, 6, 12, 24, 48, 72, 96] # 80 * 5 / 10 = 40 syn per cluster
     
     pref_ori_dg = [0]
     num_trials = [1]
