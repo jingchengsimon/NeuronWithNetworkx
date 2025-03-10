@@ -29,7 +29,6 @@ extern double hoc_Exp(double);
 #define nrn_jacob _nrn_jacob__ProbAMPANMDA2
 #define nrn_state _nrn_state__ProbAMPANMDA2
 #define _net_receive _net_receive__ProbAMPANMDA2 
-#define setRNG setRNG__ProbAMPANMDA2 
 #define state state__ProbAMPANMDA2 
  
 #define _threadargscomma_ /**/
@@ -120,8 +119,6 @@ extern "C" {
  static int hoc_nrnpointerindex =  2;
  /* external NEURON variables */
  /* declaration of user functions */
- static double _hoc_erand(void*);
- static double _hoc_setRNG(void*);
  static int _mechtype;
 extern void _nrn_cacheloop_reg(int, int);
 extern void hoc_register_prop_size(int, int, int);
@@ -169,27 +166,21 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  "loc", _hoc_loc_pnt,
  "has_loc", _hoc_has_loc,
  "get_loc", _hoc_get_loc_pnt,
- "erand", _hoc_erand,
- "setRNG", _hoc_setRNG,
  0, 0
 };
-#define erand erand_ProbAMPANMDA2
- extern double erand( );
  /* declare global and static user variables */
 #define mggate mggate_ProbAMPANMDA2
  double mggate = 0;
 #define mg mg_ProbAMPANMDA2
  double mg = 1;
+#define ratio_NMDA_to_AMPA ratio_NMDA_to_AMPA_ProbAMPANMDA2
+ double ratio_NMDA_to_AMPA = 1.1;
  /* some parameters have upper and lower limits */
  static HocParmLimits _hoc_parm_limits[] = {
  0,0,0
 };
  static HocParmUnits _hoc_parm_units[] = {
  "mg_ProbAMPANMDA2", "mM",
- "tau_r_AMPA", "ms",
- "tau_d_AMPA", "ms",
- "tau_r_NMDA", "ms",
- "tau_d_NMDA", "ms",
  "Use", "1",
  "Dep", "ms",
  "Fac", "ms",
@@ -212,6 +203,7 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  static DoubScal hoc_scdoub[] = {
  "mg_ProbAMPANMDA2", &mg_ProbAMPANMDA2,
  "mggate_ProbAMPANMDA2", &mggate_ProbAMPANMDA2,
+ "ratio_NMDA_to_AMPA_ProbAMPANMDA2", &ratio_NMDA_to_AMPA_ProbAMPANMDA2,
  0,0
 };
  static DoubVec hoc_vdoub[] = {
@@ -276,10 +268,10 @@ static void nrn_alloc(Prop* _prop) {
  }else{
  	_p = nrn_prop_data_alloc(_mechtype, 28, _prop);
  	/*initialize range parameters*/
- 	tau_r_AMPA = 0.2;
- 	tau_d_AMPA = 1.7;
- 	tau_r_NMDA = 0.29;
- 	tau_d_NMDA = 43;
+ 	tau_r_AMPA = 1;
+ 	tau_d_AMPA = 2;
+ 	tau_r_NMDA = 5;
+ 	tau_d_NMDA = 90;
  	Use = 1;
  	Dep = 100;
  	Fac = 10;
@@ -303,7 +295,6 @@ static void nrn_alloc(Prop* _prop) {
  0,0
 };
  static void _net_receive(Point_process*, double*, double);
- static void _net_init(Point_process*, double*, double);
  extern Symbol* hoc_lookup(const char*);
 extern void _nrn_thread_reg(int, int, void(*)(Datum*));
 extern void _nrn_thread_table_reg(int, void(*)(double*, Datum*, Datum*, NrnThread*, int));
@@ -331,7 +322,6 @@ extern void _cvode_abstol( Symbol**, double*, int);
  	hoc_register_cvode(_mechtype, _ode_count, _ode_map, _ode_spec, _ode_matsol);
  	hoc_register_tolerance(_mechtype, _hoc_state_tol, &_atollist);
  pnt_receive[_mechtype] = _net_receive;
- pnt_receive_init[_mechtype] = _net_init;
  pnt_receive_size[_mechtype] = 7;
  	hoc_register_var(hoc_scdoub, hoc_vdoub, hoc_intfunc);
  	ivoc_help("help ?1 ProbAMPANMDA2 /G/MIMOlab/Codes/NeuronWithNetworkx/mod/ProbAMPANMDA2.mod\n");
@@ -345,7 +335,6 @@ static int error;
 static int _ninits = 0;
 static int _match_recurse=1;
 static void _modl_cleanup(){ _match_recurse=1;}
-static int setRNG();
  
 static int _ode_spec1(_threadargsproto_);
 /*static int _ode_matsol1(_threadargsproto_);*/
@@ -432,125 +421,7 @@ static void _net_receive (Point_process* _pnt, double* _args, double _lflag)
   } else {
  B_NMDA = B_NMDA + _args[2] * factor_NMDA ;
      }
- if ( Fac > 0.0 ) {
-     _args[5] = _args[5] * exp ( - ( t - _args[6] ) / Fac ) ;
-     }
-   else {
-     _args[5] = Use ;
-     }
-   if ( Fac > 0.0 ) {
-     _args[5] = _args[5] + Use * ( 1.0 - _args[5] ) ;
-     }
-   _args[3] = 1.0 - ( 1.0 - _args[3] ) * exp ( - ( t - _args[6] ) / Dep ) ;
-   _args[4] = _args[5] * _args[3] ;
-   _args[3] = _args[3] - _args[5] * _args[3] ;
-   _args[6] = t ;
-   if ( erand ( _threadargs_ ) < _args[4] ) {
-       if (nrn_netrec_state_adjust && !cvode_active_){
-    /* discon state adjustment for cnexp case (rate uses no local variable) */
-    double __state = A_AMPA;
-    double __primary = (A_AMPA + _args[1] * factor_AMPA) - __state;
-     __primary += ( 1. - exp( 0.5*dt*( ( - 1.0 ) / tau_r_AMPA ) ) )*( - ( 0.0 ) / ( ( - 1.0 ) / tau_r_AMPA ) - __primary );
-    A_AMPA += __primary;
-  } else {
- A_AMPA = A_AMPA + _args[1] * factor_AMPA ;
-       }
-   if (nrn_netrec_state_adjust && !cvode_active_){
-    /* discon state adjustment for cnexp case (rate uses no local variable) */
-    double __state = B_AMPA;
-    double __primary = (B_AMPA + _args[1] * factor_AMPA) - __state;
-     __primary += ( 1. - exp( 0.5*dt*( ( - 1.0 ) / tau_d_AMPA ) ) )*( - ( 0.0 ) / ( ( - 1.0 ) / tau_d_AMPA ) - __primary );
-    B_AMPA += __primary;
-  } else {
- B_AMPA = B_AMPA + _args[1] * factor_AMPA ;
-       }
-   if (nrn_netrec_state_adjust && !cvode_active_){
-    /* discon state adjustment for cnexp case (rate uses no local variable) */
-    double __state = A_NMDA;
-    double __primary = (A_NMDA + _args[2] * factor_NMDA) - __state;
-     __primary += ( 1. - exp( 0.5*dt*( ( - 1.0 ) / tau_r_NMDA ) ) )*( - ( 0.0 ) / ( ( - 1.0 ) / tau_r_NMDA ) - __primary );
-    A_NMDA += __primary;
-  } else {
- A_NMDA = A_NMDA + _args[2] * factor_NMDA ;
-       }
-   if (nrn_netrec_state_adjust && !cvode_active_){
-    /* discon state adjustment for cnexp case (rate uses no local variable) */
-    double __state = B_NMDA;
-    double __primary = (B_NMDA + _args[2] * factor_NMDA) - __state;
-     __primary += ( 1. - exp( 0.5*dt*( ( - 1.0 ) / tau_d_NMDA ) ) )*( - ( 0.0 ) / ( ( - 1.0 ) / tau_d_NMDA ) - __primary );
-    B_NMDA += __primary;
-  } else {
- B_NMDA = B_NMDA + _args[2] * factor_NMDA ;
-       }
- }
-   } }
- 
-static void _net_init(Point_process* _pnt, double* _args, double _lflag) {
-       _p = _pnt->_prop->param; _ppvar = _pnt->_prop->dparam;
- _args[3] = 1.0 ;
-   _args[5] = u0 ;
-   _args[6] = t ;
-   }
- 
-static int  setRNG (  ) {
-   
-/*VERBATIM*/
-    {
-        /**
-         * This function takes a NEURON Random object declared in hoc and makes it usable by this mod file.
-         * Note that this method is taken from Brett paper as used by netstim.hoc and netstim.mod
-         * which points out that the Random must be in negexp(1) mode
-         */
-        void** pv = (void**)(&_p_rng);
-        if( ifarg(1)) {
-            *pv = nrn_random_arg(1);
-        } else {
-            *pv = (void*)0;
-        }
-    }
-  return 0; }
- 
-static double _hoc_setRNG(void* _vptr) {
- double _r;
-    _hoc_setdata(_vptr);
- _r = 1.;
- setRNG (  );
- return(_r);
-}
- 
-double erand (  ) {
-   double _lerand;
- 
-/*VERBATIM*/
-	    //FILE *fi;
-        double value;
-        if (_p_rng) {
-                /*
-                :Supports separate independent but reproducible streams for
-                : each instance. However, the corresponding hoc Random
-                : distribution MUST be set to Random.negexp(1)
-                */
-                value = nrn_random_pick(_p_rng);
-		        //fi = fopen("RandomStreamMCellRan4.txt", "w");
-                //fprintf(fi,"random stream for this simulation = %lf\n",value);
-                //printf("random stream for this simulation = %lf\n",value);
-                return value;
-        }else{
- _lerand = exprand ( 1.0 ) ;
-   
-/*VERBATIM*/
-        }
- _lerand = value ;
-   
-return _lerand;
- }
- 
-static double _hoc_erand(void* _vptr) {
- double _r;
-    _hoc_setdata(_vptr);
- _r =  erand (  );
- return(_r);
-}
+ } }
  
 static int _ode_count(int _type){ return 4;}
  
@@ -642,7 +513,7 @@ for (_iml = 0; _iml < _cntml; ++_iml) {
 
 static double _nrn_current(double _v){double _current=0.;v=_v;{ {
    mggate = 1.0 / ( 1.0 + exp ( 0.08 * - ( v ) ) * ( mg / 3.57 ) ) ;
-   g_AMPA = initW * ( B_AMPA - A_AMPA ) ;
+   g_AMPA = initW * ( B_AMPA - A_AMPA ) / ratio_NMDA_to_AMPA ;
    g_NMDA = initW * ( B_NMDA - A_NMDA ) * mggate ;
    i_AMPA = g_AMPA * ( v - e ) ;
    i_NMDA = g_NMDA * ( v - e ) ;
@@ -729,7 +600,7 @@ for (_iml = 0; _iml < _cntml; ++_iml) {
  v=_v;
 {
  { error =  state();
- if(error){fprintf(stderr,"at line 101 in file ProbAMPANMDA2.mod:\n        SOLVE state METHOD cnexp\n"); nrn_complain(_p); abort_run(error);}
+ if(error){fprintf(stderr,"at line 102 in file ProbAMPANMDA2.mod:\n        SOLVE state METHOD cnexp\n"); nrn_complain(_p); abort_run(error);}
  }}}
 
 }
@@ -773,10 +644,10 @@ static const char* nmodl_file_text =
   "\n"
   "PARAMETER {\n"
   "\n"
-  "        tau_r_AMPA = 0.2   (ms)  : dual-exponential conductance profile\n"
-  "        tau_d_AMPA = 1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
-  "	tau_r_NMDA = 0.29   (ms) : dual-exponential conductance profile\n"
-  "        tau_d_NMDA = 43     (ms) : IMPORTANT: tau_r < tau_d\n"
+  "        tau_r_AMPA =  1 :0.2   (ms)  : dual-exponential conductance profile\n"
+  "        tau_d_AMPA = 2 :1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
+  "	tau_r_NMDA = 5 :0.29   (ms) : dual-exponential conductance profile\n"
+  "        tau_d_NMDA = 90 :43     (ms) : IMPORTANT: tau_r < tau_d\n"
   "        Use = 1.0   (1)   : Utilization of synaptic efficacy (just initial values! Use, Dep and Fac are overwritten by BlueBuilder assigned values) \n"
   "        Dep = 100   (ms)  : relaxation time constant from depression\n"
   "        Fac = 10   (ms)  :  relaxation time constant from facilitation\n"
@@ -784,6 +655,7 @@ static const char* nmodl_file_text =
   "	mg = 1   (mM)  : initial concentration of mg2+\n"
   "        mggate\n"
   "    	initW = .001 (uS) : original value: 1\n"
+  "        ratio_NMDA_to_AMPA = 1.1\n"
   "    	u0 = 0 :initial value of u, which is the running value of Use\n"
   "}\n"
   "\n"
@@ -851,7 +723,7 @@ static const char* nmodl_file_text =
   "\n"
   "        SOLVE state METHOD cnexp\n"
   "	mggate = 1 / (1 + exp(0.08  (/mV) * -(v)) * (mg / 3.57 (mM))) :mggate kinetics - Jahr & Stevens 1990\n"
-  "        g_AMPA = initW*(B_AMPA-A_AMPA) :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA\n"
+  "        g_AMPA = initW*(B_AMPA-A_AMPA) / ratio_NMDA_to_AMPA :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA\n"
   "	g_NMDA = initW*(B_NMDA-A_NMDA) * mggate :compute time varying conductance as the difference of state variables B_NMDA and A_NMDA and mggate kinetics\n"
   "        i_AMPA = g_AMPA*(v-e) :compute the AMPA driving force based on the time varying conductance, membrane potential, and AMPA reversal\n"
   "	i_NMDA = g_NMDA*(v-e) :compute the NMDA driving force based on the time varying conductance, membrane potential, and NMDA reversal\n"
@@ -876,87 +748,8 @@ static const char* nmodl_file_text =
   "        A_NMDA = A_NMDA + weight_NMDA*factor_NMDA\n"
   "        B_NMDA = B_NMDA + weight_NMDA*factor_NMDA\n"
   "\n"
-  "	:printf(\"NMDA weight = %g\\n\", weight_NMDA)\n"
-  "\n"
-  "        INITIAL{\n"
-  "                Pv=1\n"
-  "                u=u0\n"
-  "                tsyn=t\n"
-  "            }\n"
-  "\n"
-  "        : calc u at event-\n"
-  "        if (Fac > 0) {\n"
-  "                u = u*exp(-(t - tsyn)/Fac) :update facilitation variable if Fac>0 Eq. 2 in Fuhrmann et al.\n"
-  "           } else {\n"
-  "                  u = Use  \n"
-  "           } \n"
-  "           if(Fac > 0){\n"
-  "                  u = u + Use*(1-u) :update facilitation variable if Fac>0 Eq. 2 in Fuhrmann et al.\n"
-  "           }    \n"
-  "\n"
-  "        \n"
-  "            Pv  = 1 - (1-Pv) * exp(-(t-tsyn)/Dep) :Probability Pv for a vesicle to be available for release, analogous to the pool of synaptic\n"
-  "                                                 :resources available for release in the deterministic model. Eq. 3 in Fuhrmann et al.\n"
-  "            Pr  = u * Pv                         :Pr is calculated as Pv * u (running value of Use)\n"
-  "            Pv  = Pv - u * Pv                    :update Pv as per Eq. 3 in Fuhrmann et al.\n"
-  "            :printf(\"Pv = %g\\n\", Pv)\n"
-  "            :printf(\"Pr = %g\\n\", Pr)\n"
-  "            tsyn = t\n"
-  "                \n"
-  "		   if (erand() < Pr){\n"
   "	\n"
-  "                    A_AMPA = A_AMPA + weight_AMPA*factor_AMPA\n"
-  "                    B_AMPA = B_AMPA + weight_AMPA*factor_AMPA\n"
-  "		    A_NMDA = A_NMDA + weight_NMDA*factor_NMDA\n"
-  "                    B_NMDA = B_NMDA + weight_NMDA*factor_NMDA\n"
-  "\n"
-  "                }\n"
   "}\n"
   "\n"
-  "PROCEDURE setRNG() {\n"
-  "VERBATIM\n"
-  "    {\n"
-  "        /**\n"
-  "         * This function takes a NEURON Random object declared in hoc and makes it usable by this mod file.\n"
-  "         * Note that this method is taken from Brett paper as used by netstim.hoc and netstim.mod\n"
-  "         * which points out that the Random must be in negexp(1) mode\n"
-  "         */\n"
-  "        void** pv = (void**)(&_p_rng);\n"
-  "        if( ifarg(1)) {\n"
-  "            *pv = nrn_random_arg(1);\n"
-  "        } else {\n"
-  "            *pv = (void*)0;\n"
-  "        }\n"
-  "    }\n"
-  "ENDVERBATIM\n"
-  "}\n"
-  "\n"
-  "FUNCTION erand() {\n"
-  "VERBATIM\n"
-  "	    //FILE *fi;\n"
-  "        double value;\n"
-  "        if (_p_rng) {\n"
-  "                /*\n"
-  "                :Supports separate independent but reproducible streams for\n"
-  "                : each instance. However, the corresponding hoc Random\n"
-  "                : distribution MUST be set to Random.negexp(1)\n"
-  "                */\n"
-  "                value = nrn_random_pick(_p_rng);\n"
-  "		        //fi = fopen(\"RandomStreamMCellRan4.txt\", \"w\");\n"
-  "                //fprintf(fi,\"random stream for this simulation = %lf\\n\",value);\n"
-  "                //printf(\"random stream for this simulation = %lf\\n\",value);\n"
-  "                return value;\n"
-  "        }else{\n"
-  "ENDVERBATIM\n"
-  "                : the old standby. Cannot use if reproducible parallel sim\n"
-  "                : independent of nhost or which host this instance is on\n"
-  "                : is desired, since each instance on this cpu draws from\n"
-  "                : the same stream\n"
-  "                erand = exprand(1)\n"
-  "VERBATIM\n"
-  "        }\n"
-  "ENDVERBATIM\n"
-  "        erand = value\n"
-  "}\n"
   ;
 #endif
