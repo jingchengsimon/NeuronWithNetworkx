@@ -4,5 +4,8 @@
 # 忽略 Jupyter 检查点
 .ipynb_checkpoints/
 
+*.zip
+*.ipynb
+
 # 忽略大文件，比如输出结果文件
 BiophysInspectSimplified.ipynb
