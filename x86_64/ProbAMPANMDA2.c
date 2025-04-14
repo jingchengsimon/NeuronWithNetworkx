@@ -655,7 +655,7 @@ static const char* nmodl_file_text =
   "	mg = 1   (mM)  : initial concentration of mg2+\n"
   "        mggate\n"
   "    	initW = .001 (uS) : original value: 1\n"
-  "        ratio_NMDA_to_AMPA = 1.1\n"
+  "        ratio_NMDA_to_AMPA = 1.1 : 1.1\n"
   "    	u0 = 0 :initial value of u, which is the running value of Use\n"
   "}\n"
   "\n"
