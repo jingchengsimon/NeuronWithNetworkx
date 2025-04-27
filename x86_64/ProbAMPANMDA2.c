@@ -62,44 +62,46 @@ extern double hoc_Exp(double);
 #define e_columnindex 7
 #define initW _p[8]
 #define initW_columnindex 8
-#define u0 _p[9]
-#define u0_columnindex 9
-#define i _p[10]
-#define i_columnindex 10
-#define i_AMPA _p[11]
-#define i_AMPA_columnindex 11
-#define i_NMDA _p[12]
-#define i_NMDA_columnindex 12
-#define g_AMPA _p[13]
-#define g_AMPA_columnindex 13
-#define g_NMDA _p[14]
-#define g_NMDA_columnindex 14
-#define weight_NMDA _p[15]
-#define weight_NMDA_columnindex 15
-#define A_AMPA _p[16]
-#define A_AMPA_columnindex 16
-#define B_AMPA _p[17]
-#define B_AMPA_columnindex 17
-#define A_NMDA _p[18]
-#define A_NMDA_columnindex 18
-#define B_NMDA _p[19]
-#define B_NMDA_columnindex 19
-#define factor_AMPA _p[20]
-#define factor_AMPA_columnindex 20
-#define factor_NMDA _p[21]
-#define factor_NMDA_columnindex 21
-#define DA_AMPA _p[22]
-#define DA_AMPA_columnindex 22
-#define DB_AMPA _p[23]
-#define DB_AMPA_columnindex 23
-#define DA_NMDA _p[24]
-#define DA_NMDA_columnindex 24
-#define DB_NMDA _p[25]
-#define DB_NMDA_columnindex 25
-#define _g _p[26]
-#define _g_columnindex 26
-#define _tsav _p[27]
-#define _tsav_columnindex 27
+#define ratio_NMDA_to_AMPA _p[9]
+#define ratio_NMDA_to_AMPA_columnindex 9
+#define u0 _p[10]
+#define u0_columnindex 10
+#define i _p[11]
+#define i_columnindex 11
+#define i_AMPA _p[12]
+#define i_AMPA_columnindex 12
+#define i_NMDA _p[13]
+#define i_NMDA_columnindex 13
+#define g_AMPA _p[14]
+#define g_AMPA_columnindex 14
+#define g_NMDA _p[15]
+#define g_NMDA_columnindex 15
+#define weight_NMDA _p[16]
+#define weight_NMDA_columnindex 16
+#define A_AMPA _p[17]
+#define A_AMPA_columnindex 17
+#define B_AMPA _p[18]
+#define B_AMPA_columnindex 18
+#define A_NMDA _p[19]
+#define A_NMDA_columnindex 19
+#define B_NMDA _p[20]
+#define B_NMDA_columnindex 20
+#define factor_AMPA _p[21]
+#define factor_AMPA_columnindex 21
+#define factor_NMDA _p[22]
+#define factor_NMDA_columnindex 22
+#define DA_AMPA _p[23]
+#define DA_AMPA_columnindex 23
+#define DB_AMPA _p[24]
+#define DB_AMPA_columnindex 24
+#define DA_NMDA _p[25]
+#define DA_NMDA_columnindex 25
+#define DB_NMDA _p[26]
+#define DB_NMDA_columnindex 26
+#define _g _p[27]
+#define _g_columnindex 27
+#define _tsav _p[28]
+#define _tsav_columnindex 28
 #define _nd_area  *_ppvar[0]._pval
 #define rng	*_ppvar[2]._pval
 #define _p_rng	_ppvar[2]._pval
@@ -173,14 +175,16 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  double mggate = 0;
 #define mg mg_ProbAMPANMDA2
  double mg = 1;
-#define ratio_NMDA_to_AMPA ratio_NMDA_to_AMPA_ProbAMPANMDA2
- double ratio_NMDA_to_AMPA = 1.1;
  /* some parameters have upper and lower limits */
  static HocParmLimits _hoc_parm_limits[] = {
  0,0,0
 };
  static HocParmUnits _hoc_parm_units[] = {
  "mg_ProbAMPANMDA2", "mM",
+ "tau_r_AMPA", "ms",
+ "tau_d_AMPA", "ms",
+ "tau_r_NMDA", "ms",
+ "tau_d_NMDA", "ms",
  "Use", "1",
  "Dep", "ms",
  "Fac", "ms",
@@ -203,7 +207,6 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  static DoubScal hoc_scdoub[] = {
  "mg_ProbAMPANMDA2", &mg_ProbAMPANMDA2,
  "mggate_ProbAMPANMDA2", &mggate_ProbAMPANMDA2,
- "ratio_NMDA_to_AMPA_ProbAMPANMDA2", &ratio_NMDA_to_AMPA_ProbAMPANMDA2,
  0,0
 };
  static DoubVec hoc_vdoub[] = {
@@ -239,6 +242,7 @@ static void _ode_matsol(NrnThread*, _Memb_list*, int);
  "Fac",
  "e",
  "initW",
+ "ratio_NMDA_to_AMPA",
  "u0",
  0,
  "i",
@@ -266,21 +270,22 @@ static void nrn_alloc(Prop* _prop) {
 	_p = nrn_point_prop_->param;
 	_ppvar = nrn_point_prop_->dparam;
  }else{
- 	_p = nrn_prop_data_alloc(_mechtype, 28, _prop);
+ 	_p = nrn_prop_data_alloc(_mechtype, 29, _prop);
  	/*initialize range parameters*/
- 	tau_r_AMPA = 1;
- 	tau_d_AMPA = 2;
- 	tau_r_NMDA = 5;
- 	tau_d_NMDA = 90;
+ 	tau_r_AMPA = 0.2;
+ 	tau_d_AMPA = 1.7;
+ 	tau_r_NMDA = 0.29;
+ 	tau_d_NMDA = 43;
  	Use = 1;
  	Dep = 100;
  	Fac = 10;
  	e = 0;
  	initW = 0.001;
+ 	ratio_NMDA_to_AMPA = 1.1;
  	u0 = 0;
   }
  	_prop->param = _p;
- 	_prop->param_size = 28;
+ 	_prop->param_size = 29;
   if (!nrn_point_prop_) {
  	_ppvar = nrn_prop_datum_alloc(_mechtype, 4, _prop);
   }
@@ -314,7 +319,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
   hoc_reg_nmodl_text(_mechtype, nmodl_file_text);
   hoc_reg_nmodl_filename(_mechtype, nmodl_filename);
 #endif
-  hoc_register_prop_size(_mechtype, 28, 4);
+  hoc_register_prop_size(_mechtype, 29, 4);
   hoc_register_dparam_semantics(_mechtype, 0, "area");
   hoc_register_dparam_semantics(_mechtype, 1, "pntproc");
   hoc_register_dparam_semantics(_mechtype, 2, "pointer");
@@ -637,17 +642,17 @@ static const char* nmodl_file_text =
   "        POINT_PROCESS ProbAMPANMDA2  \n"
   "        RANGE tau_r_AMPA, tau_d_AMPA, tau_r_NMDA, tau_d_NMDA\n"
   "        RANGE Use, u, Dep, Fac, u0, weight_NMDA\n"
-  "        RANGE i, i_AMPA, i_NMDA, g_AMPA, g_NMDA, e, initW\n"
+  "        RANGE i, i_AMPA, i_NMDA, g_AMPA, g_NMDA, e, initW, ratio_NMDA_to_AMPA\n"
   "        NONSPECIFIC_CURRENT i_AMPA,i_NMDA\n"
   "	POINTER rng\n"
   "}\n"
   "\n"
   "PARAMETER {\n"
   "\n"
-  "        tau_r_AMPA =  1 :0.2   (ms)  : dual-exponential conductance profile\n"
-  "        tau_d_AMPA = 2 :1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
-  "	tau_r_NMDA = 5 :0.29   (ms) : dual-exponential conductance profile\n"
-  "        tau_d_NMDA = 90 :43     (ms) : IMPORTANT: tau_r < tau_d\n"
+  "        tau_r_AMPA = 0.2 (ms) :0.2   (ms)  : dual-exponential conductance profile\n"
+  "        tau_d_AMPA = 1.7 (ms) :1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
+  "	tau_r_NMDA = 0.29 (ms) :0.29   (ms) : dual-exponential conductance profile\n"
+  "        tau_d_NMDA = 43 (ms) :43     (ms) : IMPORTANT: tau_r < tau_d\n"
   "        Use = 1.0   (1)   : Utilization of synaptic efficacy (just initial values! Use, Dep and Fac are overwritten by BlueBuilder assigned values) \n"
   "        Dep = 100   (ms)  : relaxation time constant from depression\n"
   "        Fac = 10   (ms)  :  relaxation time constant from facilitation\n"

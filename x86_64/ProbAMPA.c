@@ -62,28 +62,30 @@ extern double hoc_Exp(double);
 #define e_columnindex 7
 #define initW _p[8]
 #define initW_columnindex 8
-#define u0 _p[9]
-#define u0_columnindex 9
-#define i _p[10]
-#define i_columnindex 10
-#define i_AMPA _p[11]
-#define i_AMPA_columnindex 11
-#define g_AMPA _p[12]
-#define g_AMPA_columnindex 12
-#define A_AMPA _p[13]
-#define A_AMPA_columnindex 13
-#define B_AMPA _p[14]
-#define B_AMPA_columnindex 14
-#define factor_AMPA _p[15]
-#define factor_AMPA_columnindex 15
-#define DA_AMPA _p[16]
-#define DA_AMPA_columnindex 16
-#define DB_AMPA _p[17]
-#define DB_AMPA_columnindex 17
-#define _g _p[18]
-#define _g_columnindex 18
-#define _tsav _p[19]
-#define _tsav_columnindex 19
+#define ratio_NMDA_to_AMPA _p[9]
+#define ratio_NMDA_to_AMPA_columnindex 9
+#define u0 _p[10]
+#define u0_columnindex 10
+#define i _p[11]
+#define i_columnindex 11
+#define i_AMPA _p[12]
+#define i_AMPA_columnindex 12
+#define g_AMPA _p[13]
+#define g_AMPA_columnindex 13
+#define A_AMPA _p[14]
+#define A_AMPA_columnindex 14
+#define B_AMPA _p[15]
+#define B_AMPA_columnindex 15
+#define factor_AMPA _p[16]
+#define factor_AMPA_columnindex 16
+#define DA_AMPA _p[17]
+#define DA_AMPA_columnindex 17
+#define DB_AMPA _p[18]
+#define DB_AMPA_columnindex 18
+#define _g _p[19]
+#define _g_columnindex 19
+#define _tsav _p[20]
+#define _tsav_columnindex 20
 #define _nd_area  *_ppvar[0]._pval
 #define rng	*_ppvar[2]._pval
 #define _p_rng	_ppvar[2]._pval
@@ -220,6 +222,7 @@ static void _ode_matsol(NrnThread*, _Memb_list*, int);
  "Fac",
  "e",
  "initW",
+ "ratio_NMDA_to_AMPA",
  "u0",
  0,
  "i",
@@ -242,7 +245,7 @@ static void nrn_alloc(Prop* _prop) {
 	_p = nrn_point_prop_->param;
 	_ppvar = nrn_point_prop_->dparam;
  }else{
- 	_p = nrn_prop_data_alloc(_mechtype, 20, _prop);
+ 	_p = nrn_prop_data_alloc(_mechtype, 21, _prop);
  	/*initialize range parameters*/
  	tau_r_AMPA = 0.2;
  	tau_d_AMPA = 1.7;
@@ -253,10 +256,11 @@ static void nrn_alloc(Prop* _prop) {
  	Fac = 10;
  	e = 0;
  	initW = 0.001;
+ 	ratio_NMDA_to_AMPA = 1.1;
  	u0 = 0;
   }
  	_prop->param = _p;
- 	_prop->param_size = 20;
+ 	_prop->param_size = 21;
   if (!nrn_point_prop_) {
  	_ppvar = nrn_prop_datum_alloc(_mechtype, 4, _prop);
   }
@@ -290,7 +294,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
   hoc_reg_nmodl_text(_mechtype, nmodl_file_text);
   hoc_reg_nmodl_filename(_mechtype, nmodl_filename);
 #endif
-  hoc_register_prop_size(_mechtype, 20, 4);
+  hoc_register_prop_size(_mechtype, 21, 4);
   hoc_register_dparam_semantics(_mechtype, 0, "area");
   hoc_register_dparam_semantics(_mechtype, 1, "pntproc");
   hoc_register_dparam_semantics(_mechtype, 2, "pointer");
@@ -305,7 +309,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
  hoc_register_units(_mechtype, _hoc_parm_units);
  }
 static int _reset;
-static char *modelname = "AMPA and NMDA receptor with presynaptic short-term plasticity ";
+static char *modelname = "AMPA receptor with presynaptic short-term plasticity ";
 
 static int error;
 static int _ninits = 0;
@@ -456,7 +460,7 @@ for (_iml = 0; _iml < _cntml; ++_iml) {
 }}
 
 static double _nrn_current(double _v){double _current=0.;v=_v;{ {
-   g_AMPA = initW * ( B_AMPA - A_AMPA ) ;
+   g_AMPA = initW * ( B_AMPA - A_AMPA ) / ratio_NMDA_to_AMPA ;
    i_AMPA = g_AMPA * ( v - e ) ;
    i = i_AMPA ;
    }
@@ -540,7 +544,7 @@ for (_iml = 0; _iml < _cntml; ++_iml) {
  v=_v;
 {
  { error =  state();
- if(error){fprintf(stderr,"at line 87 in file ProbAMPA.mod:\n        SOLVE state METHOD cnexp\n"); nrn_complain(_p); abort_run(error);}
+ if(error){fprintf(stderr,"at line 88 in file ProbAMPA.mod:\n        SOLVE state METHOD cnexp\n"); nrn_complain(_p); abort_run(error);}
  }}}
 
 }
@@ -558,14 +562,14 @@ _first = 0;
 #if NMODL_TEXT
 static const char* nmodl_filename = "/G/MIMOlab/Codes/NeuronWithNetworkx/mod/ProbAMPA.mod";
 static const char* nmodl_file_text = 
-  "TITLE AMPA and NMDA receptor with presynaptic short-term plasticity \n"
+  "TITLE AMPA receptor with presynaptic short-term plasticity \n"
   "\n"
   "\n"
   "COMMENT\n"
-  "AMPA and NMDA receptor conductance using a dual-exponential profile\n"
+  "AMPA receptor conductance using a dual-exponential profile\n"
   "presynaptic short-term plasticity based on Fuhrmann et al. 2002\n"
   "Implemented by Srikanth Ramaswamy, Blue Brain Project, July 2009\n"
-  "Etay: changed weight to be equal for NMDA and AMPA, gmax accessible in Neuron\n"
+  "Etay: changed weight to be equal for AMPA, gmax accessible in Neuron\n"
   "\n"
   "ENDCOMMENT\n"
   "\n"
@@ -575,24 +579,25 @@ static const char* nmodl_file_text =
   "        POINT_PROCESS ProbAMPA \n"
   "        RANGE tau_r_AMPA, tau_d_AMPA, tau_r_NMDA, tau_d_NMDA\n"
   "        RANGE Use, u, Dep, Fac, u0\n"
-  "        RANGE i, i_AMPA, g_AMPA, e, initW\n"
+  "        RANGE i, i_AMPA, g_AMPA, e, initW, ratio_NMDA_to_AMPA\n"
   "        NONSPECIFIC_CURRENT i_AMPA\n"
   "	POINTER rng\n"
   "}\n"
   "\n"
   "PARAMETER {\n"
   "\n"
-  "        tau_r_AMPA = 0.2   (ms)  : dual-exponential conductance profile\n"
-  "        tau_d_AMPA = 1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
-  "        tau_r_NMDA = 0.29   (ms) : dual-exponential conductance profile\n"
-  "        tau_d_NMDA = 43     (ms) : IMPORTANT: tau_r < tau_d\n"
+  "        tau_r_AMPA = 0.2 (ms) :0.2   (ms)  : dual-exponential conductance profile\n"
+  "        tau_d_AMPA = 1.7 (ms) :1.7    (ms)  : IMPORTANT: tau_r < tau_d\n"
+  "        tau_r_NMDA = 0.29 (ms) :0.29   (ms) : dual-exponential conductance profile\n"
+  "        tau_d_NMDA = 43 (ms) :43     (ms) : IMPORTANT: tau_r < tau_d\n"
   "        Use = 1.0   (1)   : Utilization of synaptic efficacy (just initial values! Use, Dep and Fac are overwritten by BlueBuilder assigned values) \n"
   "        Dep = 100   (ms)  : relaxation time constant from depression\n"
   "        Fac = 10   (ms)  :  relaxation time constant from facilitation\n"
-  "        e = 0     (mV)  : AMPA and NMDA reversal potential\n"
+  "        e = 0     (mV)  : AMPA reversal potential\n"
   "	mg = 1   (mM)  : initial concentration of mg2+\n"
   "        mggate\n"
-  "    	initW = .001 (uS)\n"
+  "    	initW = .001 (uS) : original value: 1\n"
+  "        ratio_NMDA_to_AMPA = 1.1 : 1.1\n"
   "    	u0 = 0 :initial value of u, which is the running value of Use\n"
   "}\n"
   "\n"
@@ -645,7 +650,7 @@ static const char* nmodl_file_text =
   "BREAKPOINT {\n"
   "\n"
   "        SOLVE state METHOD cnexp\n"
-  "	g_AMPA = initW*(B_AMPA-A_AMPA) :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA\n"
+  "	g_AMPA = initW*(B_AMPA-A_AMPA) / ratio_NMDA_to_AMPA :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA\n"
   "	i_AMPA = g_AMPA*(v-e) :compute the AMPA driving force based on the time varying conductance, membrane potential, and AMPA reversal\n"
   "	i = i_AMPA\n"
   "}\n"
