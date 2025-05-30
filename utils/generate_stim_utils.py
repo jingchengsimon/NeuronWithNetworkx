@@ -47,7 +47,7 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
 
     return pref_ori_dg, indices
 
-def generate_vecstim(pre_unit_ids, num_stim, stim_time):
+def generate_vecstim(pre_unit_ids, num_stim, stim_time, DURATION):
     spt_unit_list = []
     
     for pre_unit_id in pre_unit_ids:
@@ -60,7 +60,6 @@ def generate_vecstim(pre_unit_ids, num_stim, stim_time):
         #     spt_unit = np.array([])
 
         ## Single/Double Netstim
-        
         # netstim = h.NetStim()
         # netstim.number = num_stim
         # netstim.interval = 3 # ms (the default value is actually 10 ms)
@@ -71,10 +70,13 @@ def generate_vecstim(pre_unit_ids, num_stim, stim_time):
         # Comment out only for test
         # np.random.seed(int(time.time())) # Reset the random number generator
 
-        np.random.seed(pre_unit_id)
-        
         spt_unit = np.floor(np.random.normal(stim_time, 5, num_stim)) # Varied stimulus time
         # spt_unit = np.floor(np.array([stim_time] * num_stim)) # Fixed stimulus time
+
+        # np.random.seed(pre_unit_id)
+        # counts = np.random.poisson(lam=3/1000, size=DURATION)
+        # spt_unit = np.where(counts >= 1)[0]
+
         spt_unit_list.append(spt_unit)
 
     spt_unit_array = np.array(list(zip(pre_unit_ids, spt_unit_list)), dtype=[('pre_unit_id', int), ('spt_unit', object)])

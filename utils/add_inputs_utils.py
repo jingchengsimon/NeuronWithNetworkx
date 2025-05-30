@@ -321,7 +321,7 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
                 # Comment out only for test
                 initW_distr = rnd.choice(syn_w_distr, 1)[0]  # variedW
-                # initW_distr = initW # fixedW
+                # initW_distr =  0.0100 #initW # fixedW
                 syn_params['initW'] = initW_distr
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], basal_channel_type)
             else:

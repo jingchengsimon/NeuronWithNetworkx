@@ -33,7 +33,7 @@ def generate_simu_params(sec='basal', spat_cond='clus', dist=0):
 
     num_conn_per_preunit = [3] # 3
     num_clusters = [1]  # [1, 2, 3, 6, 9, 18] 
-    num_syn_per_clus = [72]  # [1, 3, 6, 12, 24, 48, 72] [24, 32, 40, 48, 56, 64, 72]   
+    num_syn_per_clus = [1]  # [1, 3, 6, 12, 24, 48, 72] [24, 32, 40, 48, 56, 64, 72]   
     
     pref_ori_dg = [0]
     num_trials = [1]
