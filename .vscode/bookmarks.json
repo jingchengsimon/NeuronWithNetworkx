@@ -1,0 +1,79 @@
+{
+	"files": [
+		{
+			"path": "simpleModelVer2.py",
+			"bookmarks": [
+				{
+					"line": 219,
+					"column": 34,
+					"label": ""
+				},
+				{
+					"line": 402,
+					"column": 103,
+					"label": ""
+				},
+				{
+					"line": 646,
+					"column": 17,
+					"label": ""
+				},
+				{
+					"line": 664,
+					"column": 20,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "simpleModelVer2.py",
+			"bookmarks": [
+				{
+					"line": 209,
+					"column": 58,
+					"label": ""
+				},
+				{
+					"line": 213,
+					"column": 68,
+					"label": ""
+				},
+				{
+					"line": 283,
+					"column": 34,
+					"label": ""
+				},
+				{
+					"line": 297,
+					"column": 68,
+					"label": ""
+				},
+				{
+					"line": 346,
+					"column": 100,
+					"label": ""
+				},
+				{
+					"line": 526,
+					"column": 31,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "utils/add_inputs_utils.py",
+			"bookmarks": [
+				{
+					"line": 305,
+					"column": 16,
+					"label": ""
+				},
+				{
+					"line": 321,
+					"column": 59,
+					"label": ""
+				}
+			]
+		}
+	]
+}
