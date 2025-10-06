@@ -508,7 +508,7 @@ class CellWithNetworkx:
             iter_step = 2
 
         # self.num_activated_preunit_list = range(0, self.num_preunit + 1, iter_step) # for sing-clus (add 1 is to allow the last num_preunit to be included)
-        self.num_activated_preunit_list = [0] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        self.num_activated_preunit_list = [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
@@ -881,7 +881,7 @@ def build_cell(**params):
     # time_tag = time.strftime("%Y%m%d", time.localtime())
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
     if basal_channel_type == 'AMPANMDA':                                                                                
-        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_REAL' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
+        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_multiclus' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
     elif basal_channel_type == 'AMPA':
             simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_multiclus_AMPA' #variedW_tau43_addNaK_woAP+Ca_aligned_varyinh_AMPA' 
     # get the remainder of the folder_tag to 42, use 42 instead of 0 for exact division   
@@ -979,6 +979,6 @@ if __name__ == "__main__":
         for spat_cond in ['clus']: # ['clus', 'distr']
             for dis_to_root in [0]: # [0, 1, 2]
                 params_list = generate_simu_params(sec_type, spat_cond, dis_to_root)
-                for epoch in range(1, 6):
+                for epoch in range(1, 2):
                     run_processes(params_list, epoch)
 

@@ -5,21 +5,16 @@ import pandas as pd
 from tqdm import tqdm
 import warnings
 import random
-import numba 
 import os
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import threading
 import multiprocessing
 import itertools
-import hashlib
-import pickle
 
 from utils.graph_utils import create_directed_graph, set_graph_order
-from utils.add_inputs_utils import add_background_exc_inputs_2, add_background_inh_inputs, add_clustered_inputs
+from utils.add_inputs_utils import add_background_exc_inputs_2, add_background_inh_inputs
 from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_soma, recur_dist_to_root
-from utils.generate_stim_utils import generate_indices, get_stim_ids, generate_vecstim
-from utils.count_spikes import count_spikes
-from utils.visualize_utils import visualize_morpho
+from utils.generate_stim_utils import generate_indices, generate_vecstim
 
 import sys 
 import json
@@ -69,7 +64,9 @@ class CellWithNetworkx:
         if bg_exc_freq != 0:
             self.spike_interval = 1000/bg_exc_freq # interval=1000(ms)/f
 
-        ratio = np.random.uniform(0.4, 1.6) 
+        spk_rnd = np.random.default_rng(self.spk_epoch_idx)
+        ratio = spk_rnd.uniform(0.4, 1.6) 
+
         self.FREQ_EXC = bg_exc_freq * ratio # Hz, /s
         self.FREQ_INH = self.FREQ_EXC * bg_inh_freq/bg_exc_freq  # Hz, /s
         self.SIMU_DURATION = SIMU_DURATION # 1s 
@@ -152,24 +149,7 @@ class CellWithNetworkx:
 
         self.soma_v_array = None
         self.apic_v_array = None
-        self.apic_ica_array = None
-
-        self.trunk_v_array = None
-        self.basal_v_array = None
-        self.tuft_v_array = None
-
-        self.basal_bg_i_nmda_array = None
-        self.basal_bg_i_ampa_array = None
-        self.tuft_bg_i_nmda_array = None
-        self.tuft_bg_i_ampa_array = None
-
-        self.dend_v_array = None
-        self.dend_i_array = None
-        self.dend_nmda_i_array = None
-        self.dend_ampa_i_array = None
-        self.dend_nmda_g_array = None
-        self.dend_ampa_g_array = None
-
+        
         # For tuning curve
         self.num_spikes_df = None 
 
@@ -504,36 +484,11 @@ class CellWithNetworkx:
         # create an ndarray to store the voltage of each cluster of each trial 
         num_time_points = 1 + 40 * self.SIMU_DURATION
         
-        iter_step = 36
-        # self.num_activated_preunit_list = range(0, self.num_preunit + 1, iter_step) # for sing-clus (add 1 is to allow the last num_preunit to be included)
         self.num_activated_preunit_list = [self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
 
         self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
         self.apic_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.apic_ica_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        # self.soma_i_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        # self.trunk_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.basal_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.tuft_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        # self.basal_bg_i_nmda_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.basal_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.tuft_bg_i_nmda_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.tuft_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        # self.dend_v_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.dend_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.dend_nmda_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.dend_ampa_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.dend_nmda_g_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        # self.dend_ampa_g_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials)) 
-
-        # self.seg_v_array = np.zeros((len(self.all_segments), num_time_points, self.num_stim, num_aff_fibers, num_trials)) # for watershed analysis
-
-        # condition_met = False  # Flag to indicate if the condition has been met
         
         if 'distr' in folder_path:
             spat_condition = 'distr'
@@ -550,21 +505,10 @@ class CellWithNetworkx:
                                     self.epoch_idx, self.spk_epoch_idx, spat_condition, section_synapse_df_clus)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
-
-            # if condition_met:
-            #     break  # End the whole loop if the condition has been met
-
             for num_stim in range(self.num_stim):
                 for num_trial in range(num_trials): # 20
 
                     spt_unit_array = spt_unit_array_list[num_stim]
-                    # spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit]]
-                
-                    # add_clustered_inputs(self.section_synapse_df, self.num_clusters, self.basal_channel_type, 
-                    #                      self.initW, spt_unit_array_truncated, self.epoch_idx, self.num_preunit)
-                    
-                # for num_trial in range(num_trials): # 20
-
                     # Add background inputs for in vivo-like condition
                     if simu_condition == 'invivo':
                         num_activated_preunit_idx = self.num_activated_preunit_list.index(num_activated_preunit)
@@ -577,34 +521,8 @@ class CellWithNetworkx:
 
                     self.run_simulation(num_stim, num_aff_idx, num_trial, folder_path)
 
-                    # if not self.run_simulation(num_stim, num_aff_idx, num_trial):
-                    #     break  # Skip to the next epoch if the condition is not met
-                    # condition_met = True
-                    # print(f"Met for numpreunit={num_activated_preunit}")
-
         np.save(os.path.join(folder_path,'soma_v_array.npy'), self.soma_v_array)  
         np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
-        # np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
-        
-        # np.save(os.path.join(folder_path,'soma_i_array.npy'), self.soma_i_array)
-
-        # np.save(os.path.join(folder_path,'trunk_v_array.npy'), self.trunk_v_array)
-        # np.save(os.path.join(folder_path,'basal_v_array.npy'), self.basal_v_array)
-        # np.save(os.path.join(folder_path,'tuft_v_array.npy'), self.tuft_v_array)
-
-        # np.save(os.path.join(folder_path,'basal_bg_i_nmda_array.npy'), self.basal_bg_i_nmda_array)
-        # np.save(os.path.join(folder_path,'basal_bg_i_ampa_array.npy'), self.basal_bg_i_ampa_array)
-        # np.save(os.path.join(folder_path,'tuft_bg_i_nmda_array.npy'), self.tuft_bg_i_nmda_array)
-        # np.save(os.path.join(folder_path,'tuft_bg_i_ampa_array.npy'), self.tuft_bg_i_ampa_array)
-
-        # np.save(os.path.join(folder_path,'dend_v_array.npy'), self.dend_v_array)
-        # np.save(os.path.join(folder_path,'dend_i_array.npy'), self.dend_i_array)
-        # np.save(os.path.join(folder_path,'dend_nmda_i_array.npy'), self.dend_nmda_i_array)
-        # np.save(os.path.join(folder_path,'dend_ampa_i_array.npy'), self.dend_ampa_i_array)
-        # np.save(os.path.join(folder_path,'dend_nmda_g_array.npy'), self.dend_nmda_g_array)
-        # np.save(os.path.join(folder_path,'dend_ampa_g_array.npy'), self.dend_ampa_g_array)
-
-        # np.save(os.path.join(folder_path,'seg_v_array.npy'), np.mean(self.seg_v_array, axis=(-3, -2, -1)))
 
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
         
@@ -612,179 +530,17 @@ class CellWithNetworkx:
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_v)
-        # apic_ica = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_ica)
-
-        # trunk_v = h.Vector().record(self.complex_cell.apic[3](0)._ref_v)
-        # basal_v = h.Vector().record(self.complex_cell.dend[71-1](0.5)._ref_v) # the 71th dendrite (tip), L: 178.7, order: 3, distance to root: 192.8
-        # tuft_v = h.Vector().record(self.complex_cell.apic[152-85](0.5)._ref_v) # the 152th dendrite (tip), L: 192.8, order: 3, distance to root: 565.0
-
-        # # EPSC record (VClamp)
-        # vc = h.SEClamp(self.complex_cell.soma[0](0.5))   
-        # # vc.dur1 = 1000  # Long duration to hold the voltage
-        # # vc.amp1 = 60   # Holding voltage at 60 mV
-        # soma_i = h.Vector().record(vc._ref_i)
-
-        # try:
-        #     # Record summed local background NMDA current at the basal tip branch
-        #     exc_syn_on_basal_sec = self.section_synapse_df[(self.section_synapse_df['section_id_synapse'] == 71) &
-        #                                                 (self.section_synapse_df['type'] == 'A')]['synapse']
-        #     basal_bg_i_nmda_list = []
-        #     basal_bg_i_ampa_list = []
-            
-        #     for exc_syn in exc_syn_on_basal_sec:
-
-        #         try:
-        #             basal_bg_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)
-        #         except AttributeError:
-        #             basal_bg_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-
-        #         basal_bg_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-
-        #         basal_bg_i_nmda_list.append(basal_bg_i_nmda)
-        #         basal_bg_i_ampa_list.append(basal_bg_i_ampa)
-
-        #     # Record summed local background NMDA current at the tuft tip branch
-        #     exc_syn_on_tuft_sec = self.section_synapse_df[(self.section_synapse_df['section_id_synapse'] == 152) &
-        #                                                 (self.section_synapse_df['type'] == 'A')]['synapse']
-        #     tuft_bg_i_nmda_list = []  
-        #     tuft_bg_i_ampa_list = []
-
-        #     for exc_syn in exc_syn_on_tuft_sec:
-
-        #         try:
-        #             tuft_bg_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)                
-        #         except AttributeError:
-        #             tuft_bg_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-
-        #         tuft_bg_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-
-        #         tuft_bg_i_nmda_list.append(tuft_bg_i_nmda)
-        #         tuft_bg_i_ampa_list.append(tuft_bg_i_ampa)
-            
-        # except AttributeError:
-        #     pass
-
-        # # Record center synapse voltage and current at each cluster
-        # dend_v_list = []
-        # dend_i_list_list = []
-        # dend_i_nmda_list_list = []
-        # dend_i_ampa_list_list = []
-        # dend_g_nmda_list_list = []
-        # dend_g_ampa_list_list = []
-
-        # print('num_syn_per_clus: ', [len(self.section_synapse_df[(self.section_synapse_df['cluster_id'] == i)]['segment_synapse'].values) for i in range(self.num_clusters_sampled)],
-        #       ' num_clus: ', len(self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1)]['cluster_id'].values), '\n')
-              
-        # for cluster_id in range(self.num_clusters_sampled):
-            
-        #     # choose the center synapse of each cluster (spatial condition: clus)
-        #     cluster_ctr = self.section_synapse_df[(self.section_synapse_df['cluster_id'] == cluster_id) &
-        #                                         (self.section_synapse_df['cluster_center_flag'] == 1)]['segment_synapse'].values[0]
-            
-        #     dend_v = h.Vector().record(cluster_ctr._ref_v)
-
-        #     clustered_sec = np.unique(self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['section_synapse'])
-        #     exc_syn_on_clus_sec = self.section_synapse_df[(self.section_synapse_df['section_synapse'].isin(clustered_sec)) & 
-        #                                                     (self.section_synapse_df['type'].isin(['A']))]['synapse']
-        #     exc_syn_on_clus_sec_filt = list(filter(None, exc_syn_on_clus_sec)) # Not work: exc_syn_on_clus_sec[exc_syn_on_clus_sec!=None]
-            
-        #     dend_i_list = []
-        #     dend_i_nmda_list = []
-        #     dend_i_ampa_list = []
-        #     dend_g_nmda_list = []
-        #     dend_g_ampa_list = []
-
-        #     for exc_syn in exc_syn_on_clus_sec_filt:
-                
-        #         dend_i = h.Vector().record(exc_syn._ref_i)
-
-        #         try:
-        #             dend_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)
-        #             dend_g_nmda = h.Vector().record(exc_syn._ref_g_NMDA)
-        #         except AttributeError:
-        #             dend_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-        #             dend_g_nmda = h.Vector().record(exc_syn._ref_g_AMPA)
-
-        #         dend_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-        #         dend_g_ampa = h.Vector().record(exc_syn._ref_g_AMPA)
-                
-        #         dend_i_list.append(dend_i)
-        #         dend_i_nmda_list.append(dend_i_nmda)
-        #         dend_i_ampa_list.append(dend_i_ampa)
-        #         dend_g_nmda_list.append(dend_g_nmda)
-        #         dend_g_ampa_list.append(dend_g_ampa)
-
-        #     dend_v_list.append(dend_v)
-        #     dend_i_list_list.append(dend_i_list)
-        #     dend_i_nmda_list_list.append(dend_i_nmda_list)
-        #     dend_i_ampa_list_list.append(dend_i_ampa_list)
-        #     dend_g_nmda_list_list.append(dend_g_nmda_list)
-        #     dend_g_ampa_list_list.append(dend_g_ampa_list)
-
-        # # Reset the voltage of segments
-        # seg_v = [h.Vector().record(seg._ref_v) for sec in h.allsec() for seg in sec]
-
-
-        # netcons_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['netcon'].values[:3])
-        # spk_trains_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['spike_train'].values[:3])
-
-        # spike_times = [h.Vector() for _ in netcons_list]
-        # for nc, spike_times_vec in zip(netcons_list, spike_times):
-        #     nc.record(spike_times_vec)
 
         # Simulate the full neuron for 1 seconds
         time_start = time.time()
         h.tstop = self.SIMU_DURATION
         h.run()
         print(f"Simulation time: {np.round(time.time() - time_start, 2)}")
-        
-        # for i in range(len(spike_times)):
-        #     try:
-        #         print(np.array(spike_times[i]))
-        #     except ValueError:
-        #         print([])
-
-        #     try:
-        #         print(spk_trains_list[i])
-        #     except ValueError:
-        #         print([])
-
-        # if np.array(soma_v).max() < 0:
-        #     return False
-
-        # visualize_morpho(self.section_synapse_df, soma_v, seg_v, folder_path)
 
         with self.lock:
 
             self.soma_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(soma_v)
             self.apic_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(apic_v)
-            # self.apic_ica_array[:, num_stim, num_aff_fiber, num_trial] = np.array(apic_ica)
-
-            # self.soma_i_array[:, num_stim, num_aff_fiber, num_trial] = np.array(soma_i)
-
-            # self.trunk_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(trunk_v)
-            # self.basal_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(basal_v)
-            # self.tuft_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(tuft_v)
-
-            # self.seg_v_array[:, :, num_stim, num_aff_fiber, num_trial] = np.array(seg_v) #.reshape(len(self.all_segments), -1)
-
-            # try:
-            #     self.basal_bg_i_nmda_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(basal_bg_i_nmda_list), axis=0)
-            #     self.basal_bg_i_ampa_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(basal_bg_i_ampa_list), axis=0)
-            #     self.tuft_bg_i_ampa_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(tuft_bg_i_ampa_list), axis=0)
-            #     self.tuft_bg_i_nmda_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(tuft_bg_i_nmda_list), axis=0)
-
-            # except UnboundLocalError:
-            #     pass
-            
-            # for cluster_id in range(self.num_clusters_sampled):
-            #     self.dend_v_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_v_list[cluster_id])
-            #     self.dend_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_list_list[cluster_id]), axis=0)
-            #     self.dend_nmda_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_nmda_list_list[cluster_id]), axis=0)
-            #     self.dend_nmda_g_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_g_nmda_list_list[cluster_id]), axis=0)
-                
-            #     self.dend_ampa_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_ampa_list_list[cluster_id]), axis=0)
-            #     self.dend_ampa_g_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_g_ampa_list_list[cluster_id]), axis=0)
 
         return True
     
@@ -884,9 +640,9 @@ def build_cell(**params):
 
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
     if basal_channel_type == 'AMPANMDA':                                                                                
-        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_exc1.3_funcgroup2_var2' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
+        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_funcgroup2_var2' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
     elif basal_channel_type == 'AMPA':
-            simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_exc1.3_AMPA' #variedW_tau43_addNaK_woAP+Ca_aligned_varyinh_AMPA' 
+            simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_funcgroup2_var2_AMPA' #variedW_tau43_addNaK_woAP+Ca_aligned_varyinh_AMPA' 
     
     # get the remainder of the folder_tag to 42, use 42 instead of 0 for exact division   
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
@@ -976,9 +732,9 @@ if __name__ == "__main__":
     # with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:  # 根据CPU核心数调整 multiprocessing.cpu_count()
     #     executor.map(run_combination, combinations)
 
-    for batch_idx in range(5): 
-        start_epoch = 1 + batch_idx * 10
-        end_epoch = start_epoch + 10  # 不包含end_epoch
+    for batch_idx in range(1500, 1501): 
+        start_epoch = 1 + batch_idx * 1
+        end_epoch = start_epoch + 1  # 不包含end_epoch
         combinations = [
             (sec_type, spat_cond, dis_to_root, epoch)
             for sec_type in ['basal']

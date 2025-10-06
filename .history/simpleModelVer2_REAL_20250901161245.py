@@ -11,9 +11,11 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import threading
 import multiprocessing
 import itertools
+import hashlib
+import pickle
 
 from utils.graph_utils import create_directed_graph, set_graph_order
-from utils.add_inputs_utils import add_background_exc_inputs, add_background_inh_inputs, add_clustered_inputs
+from utils.add_inputs_utils import add_background_exc_inputs_2, add_background_inh_inputs
 from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_soma, recur_dist_to_root
 from utils.generate_stim_utils import generate_indices, get_stim_ids, generate_vecstim
 from utils.count_spikes import count_spikes
@@ -22,10 +24,9 @@ from utils.visualize_utils import visualize_morpho
 import sys 
 import json
 import multiprocessing
-from utils.genarate_simu_params_utils import generate_simu_params
+from utils.genarate_simu_params_utils import generate_simu_params_REAL
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
-
 warnings.simplefilter(action='ignore', category=FutureWarning) # remember update df.append to pd.concat
 warnings.simplefilter(action='ignore', category=RuntimeWarning) # RuntimeWarning: invalid value encountered in double_scalars
 
@@ -35,7 +36,7 @@ class CellWithNetworkx:
 
         # h.nrn_load_dll('./mod/nrnmech.dll') # For Windows
         h.nrn_load_dll('./mod/x86_64/.libs/libnrnmech.so') # For Linux/Mac
-        h.load_file('./modelFile/L5PCbiophys3.hoc')
+        h.load_file('./modelFile/L5PCbiophys3withNaCa.hoc')
         h.load_file('./modelFile/L5PCtemplate.hoc')
 
         self.complex_cell = h.L5PCtemplate(swc_file)
@@ -60,14 +61,19 @@ class CellWithNetworkx:
 
         self.spk_epoch_idx = epoch_idx
 
+        epoch_idx = 42
         self.rnd = np.random.default_rng(epoch_idx) #np.random.RandomState(42) 
         random.seed(epoch_idx) 
         self.epoch_idx = epoch_idx # random seed for the current epoch
 
         if bg_exc_freq != 0:
             self.spike_interval = 1000/bg_exc_freq # interval=1000(ms)/f
-        self.FREQ_EXC = bg_exc_freq  # Hz, /s
-        self.FREQ_INH = bg_inh_freq  # Hz, /s
+
+        spk_rnd = np.random.default_rng(self.spk_epoch_idx)
+        ratio = spk_rnd.uniform(0.4, 1.6) 
+
+        self.FREQ_EXC = bg_exc_freq * ratio # Hz, /s
+        self.FREQ_INH = self.FREQ_EXC * bg_inh_freq/bg_exc_freq  # Hz, /s
         self.SIMU_DURATION = SIMU_DURATION # 1s 
         self.STIM_DURATION = STIM_DURATION # 1s
 
@@ -77,9 +83,26 @@ class CellWithNetworkx:
         self.sections_soma = [i for i in map(list, list(self.complex_cell.soma))]
         self.sections_basal = [i for i in map(list, list(self.complex_cell.basal))] 
         self.sections_apical = [i for i in map(list, list(self.complex_cell.apical))]
-        self.all_sections = self.sections_soma + self.sections_basal + self.sections_apical   
-        self.all_segments = [seg for sec in h.allsec() for seg in sec] 
-                                       
+        self.sections_axon = [i for i in map(list, list(self.complex_cell.axon))] # axon is not used in this model
+        self.all_sections = self.sections_soma + self.sections_basal + self.sections_apical # + self.sections_axon # ignore axon
+        self.all_segments = [seg for sec in h.allsec() for seg in sec] #[seg for sec in self.all_sections for seg in sec] 
+
+        # all_segments_dend = np.array([seg for sec in self.sections_basal + self.sections_apical for seg in sec])
+        # all_segments_dend_dict = {i: seg for i, seg in enumerate(all_segments_dend)}
+        # all_segments_noaxon = [seg for sec in self.all_sections for seg in sec] 
+        # all_segments_noaxon_dict = {i: seg for i, seg in enumerate(all_segments_noaxon)}
+        
+        # data_list = []
+        # for _, seg in all_segments_dend_dict.items():
+        #     data_list.append({
+        #         'section_name': seg.sec.name(),
+        #         'x_position': seg.x
+        #     })
+        # df = pd.DataFrame(data_list)
+
+        # # # 保存为 CSV
+        # df.to_csv('all_segments_dend.csv', index=False)
+        
         self.section_synapse_df = pd.DataFrame(columns=['section_id_synapse',
                                                 'section_synapse',
                                                 'segment_synapse',
@@ -99,7 +122,7 @@ class CellWithNetworkx:
                                                 'netcon',
                                                 'spike_train',
                                                 'spike_train_bg'], dtype=object) # for adding vecstim of different orientation
-                                         
+                                        
         # For clustered synapses
         self.basal_channel_type = None
         self.sec_type = None
@@ -131,24 +154,7 @@ class CellWithNetworkx:
 
         self.soma_v_array = None
         self.apic_v_array = None
-        self.apic_ica_array = None
-
-        self.trunk_v_array = None
-        self.basal_v_array = None
-        self.tuft_v_array = None
-
-        self.basal_bg_i_nmda_array = None
-        self.basal_bg_i_ampa_array = None
-        self.tuft_bg_i_nmda_array = None
-        self.tuft_bg_i_ampa_array = None
-
-        self.dend_v_array = None
-        self.dend_i_array = None
-        self.dend_nmda_i_array = None
-        self.dend_ampa_i_array = None
-        self.dend_nmda_g_array = None
-        self.dend_ampa_g_array = None
-
+        
         # For tuning curve
         self.num_spikes_df = None 
 
@@ -219,7 +225,7 @@ class CellWithNetworkx:
         dist_thres_tuft = [0] + [sorted_tuft_distances[threshold - 1] for threshold in num_syn_thres 
                                  if threshold <= len(sorted_tuft_distances)] + [max(sorted_tuft_distances)]
 
-        # 
+        # Comment only for test
         num_conn_per_preunit = min(num_conn_per_preunit, num_clusters) 
         num_preunit = num_syn_per_clus * np.ceil(num_clusters / 3).astype(int)
 
@@ -261,12 +267,10 @@ class CellWithNetworkx:
         self.num_preunit = num_preunit
 
         clus_loc_rnd = np.random.RandomState(self.epoch_idx)
-        
+
         for i in range(self.num_clusters):
 
             loop_count = 0
-            # clus_loc_rnd = np.random.RandomState(self.epoch_idx + i)
-
             # Unassigned background synapses for surround synapses
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A') & 
                                                         (self.section_synapse_df['cluster_flag'] == -1)]
@@ -302,12 +306,15 @@ class CellWithNetworkx:
                 loop_count += 1
 
                 # use the clus_loc_rnd for positioning
-                syn_ctr = sec_syn_bg_exc_ordered_df.iloc[clus_loc_rnd.choice(len(sec_syn_bg_exc_ordered_df))]
-                # syn_ctr = sec_syn_bg_exc_ordered_df.loc[clus_loc_rnd.choice(sec_syn_bg_exc_ordered_df.index)]
-                print('syn_ctr:', syn_ctr['segment_synapse'])
-                print('clus_branch_id:', syn_ctr['section_id_synapse'])
+                syn_ctr_idx = clus_loc_rnd.choice(len(sec_syn_bg_exc_ordered_df))
+                syn_ctr = sec_syn_bg_exc_ordered_df.iloc[syn_ctr_idx]
+
+
+                print('clus_idx', i, 'syn_ctr:', syn_ctr['segment_synapse'])
+                # print('clus_branch_id:', syn_ctr['section_id_synapse'])
+                print('\n')
                 
-                # Assign the surround as clustered synapse only if more than 1 syn per cluster (dispersed: 1 syn per cluster)
+                # # Assign the surround as clustered synapse only if more than 1 syn per cluster (dispersed: 1 syn per cluster)
                 if num_syn_per_clus > 1:
 
                     syn_ctr_sec = syn_ctr['section_synapse']
@@ -437,6 +444,7 @@ class CellWithNetworkx:
                             self.section_synapse_df.loc[syn_surround_ctr.iloc[clus_mem_idx].index[j], 'pre_unit_id'] = index_list[j+1]
                         except IndexError:
                             self.section_synapse_df.loc[syn_surround_ctr.iloc[clus_mem_idx].index[j], 'pre_unit_id'] = -1         
+                
                 break
 
             # assign the center as clustered synapse
@@ -448,11 +456,11 @@ class CellWithNetworkx:
             except IndexError:
                 self.section_synapse_df.loc[syn_ctr.name, 'pre_unit_id'] = -1
 
-            if i < 10:
-                if num_syn_per_clus > 1:
-                    print(np.unique(syn_surround_ctr['section_id_synapse']))
-                else:
-                    print(np.unique(syn_ctr['section_id_synapse']))
+            # if i < 10:
+            #     if num_syn_per_clus > 1:
+            #         print(np.unique(syn_surround_ctr['section_id_synapse']))
+            #     else:
+            #         print(np.unique(syn_ctr['section_id_synapse']))
                     
             # print('cluster_id:', i, len(dis_syn_from_ctr), len(clus_mem_idx))
             # print('num_syn_per_clus: ', len(self.section_synapse_df[(self.section_synapse_df['cluster_id'] == i)]['segment_synapse'].values))
@@ -467,6 +475,26 @@ class CellWithNetworkx:
         self.num_func_group = num_func_group
         self.inh_delay = inh_delay
 
+        spt_rnd = np.random.RandomState(self.spk_epoch_idx) 
+
+        spt_unit_array_list = []
+        for num_stim in range(1, self.num_stim + 1):
+            spt_unit_array = generate_vecstim(spt_rnd, self.unit_ids, num_stim, self.stim_time, self.SIMU_DURATION)
+            spt_unit_array_list.append(spt_unit_array)
+        
+        perm = spt_rnd.permutation(self.num_preunit)
+
+        self.num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh, self.num_syn_soma_inh]
+        
+        # create an ndarray to store the voltage of each cluster of each trial 
+        num_time_points = 1 + 40 * self.SIMU_DURATION
+        
+        self.num_activated_preunit_list = [self.num_preunit] # for multi-clus
+        num_aff_fibers = len(self.num_activated_preunit_list)
+
+        self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
+        self.apic_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
+        
         if 'distr' in folder_path:
             spat_condition = 'distr'
             forlder_path_clus = folder_path.replace('distr', 'clus')
@@ -475,100 +503,17 @@ class CellWithNetworkx:
             spat_condition = 'clus'
             section_synapse_df_clus = self.section_synapse_df
 
-        spk_rnd = np.random.RandomState(self.spk_epoch_idx) 
-
-        spt_unit_array_list = []
-        for num_stim in range(1, self.num_stim + 1):
-            spt_unit_array = generate_vecstim(spk_rnd, self.unit_ids, num_stim, self.stim_time, self.SIMU_DURATION)
-            spt_unit_array_list.append(spt_unit_array)
-        
-        perm = spk_rnd.permutation(self.num_preunit)
-        
-        ## Rearrange the perm to always start with the first syn of the first cluster
-        pre_unit_id_first_syn = self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1) &
-                                                                (self.section_synapse_df['cluster_id'] == 0)]['pre_unit_id'].values[0]
-        perm_list = perm.tolist()
-        if pre_unit_id_first_syn in perm_list:
-            perm_list.remove(pre_unit_id_first_syn)
-            perm_list = [pre_unit_id_first_syn] + perm_list
-        perm = np.array(perm_list)
-                                                    
-        print('spt_unit_array:', spt_unit_array_list[0])
-        print('perm:', perm)
-        print('indices', self.indices)
-
-        self.num_syn_inh_list = [self.num_syn_basal_inh, self.num_syn_apic_inh, self.num_syn_soma_inh]
-        
-        # create an ndarray to store the voltage of each cluster of each trial 
-        num_time_points = 1 + 40 * self.SIMU_DURATION
-        
-        if 'expected' in folder_path:
-            iter_step = 1
-        else:
-            iter_step = 2
-
-        # self.num_activated_preunit_list = range(0, self.num_preunit + 1, iter_step) # for sing-clus (add 1 is to allow the last num_preunit to be included)
-        self.num_activated_preunit_list = [0] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
-        num_aff_fibers = len(self.num_activated_preunit_list)
-        
-        self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.apic_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.apic_ica_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        self.soma_i_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        self.trunk_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.basal_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.tuft_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        self.basal_bg_i_nmda_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.basal_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.tuft_bg_i_nmda_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.tuft_bg_i_ampa_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
-
-        self.dend_v_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_nmda_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_ampa_i_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_nmda_g_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials))
-        self.dend_ampa_g_array = np.zeros((self.num_clusters_sampled, num_time_points, self.num_stim, num_aff_fibers, num_trials)) 
-
-        # condition_met = False  # Flag to indicate if the condition has been met
-        
         if simu_condition == 'invivo':
                     
-            add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
+            add_background_exc_inputs_2(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
                                     self.epoch_idx, self.spk_epoch_idx, spat_condition, section_synapse_df_clus)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
-
-            # if condition_met:
-            #     break  # End the whole loop if the condition has been met
-
             for num_stim in range(self.num_stim):
                 for num_trial in range(num_trials): # 20
 
-                    # if simu_condition == 'invivo':
-                    
-                    # spt_unit_list_list = []
-                    # for num_stim_idx in range(1, self.num_stim + 1):
-                    #     spt_unit_list = generate_vecstim(self.unit_ids, num_stim_idx, self.stim_time)
-                    #     spt_unit_list_list.append(spt_unit_list)
-
                     spt_unit_array = spt_unit_array_list[num_stim]
-                    spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit]]
-                    # spt_unit_list_truncated = spt_unit_list
-
-                    if 'expected' in folder_path and num_activated_preunit > 0:
-                        # For expected input
-                        spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit][-1]]
-                        
-                    add_clustered_inputs(self.section_synapse_df, self.num_clusters, self.basal_channel_type, 
-                                         self.initW, spt_unit_array_truncated, self.epoch_idx, self.num_preunit)
-                    
-                # for num_trial in range(num_trials): # 20
-
                     # Add background inputs for in vivo-like condition
                     if simu_condition == 'invivo':
                         num_activated_preunit_idx = self.num_activated_preunit_list.index(num_activated_preunit)
@@ -581,32 +526,8 @@ class CellWithNetworkx:
 
                     self.run_simulation(num_stim, num_aff_idx, num_trial, folder_path)
 
-                    # if not self.run_simulation(num_stim, num_aff_idx, num_trial):
-                    #     break  # Skip to the next epoch if the condition is not met
-                    # condition_met = True
-                    # print(f"Met for numpreunit={num_activated_preunit}")
-
         np.save(os.path.join(folder_path,'soma_v_array.npy'), self.soma_v_array)  
         np.save(os.path.join(folder_path,'apic_v_array.npy'), self.apic_v_array)
-        np.save(os.path.join(folder_path,'apic_ica_array.npy'), self.apic_ica_array)
-        
-        np.save(os.path.join(folder_path,'soma_i_array.npy'), self.soma_i_array)
-
-        np.save(os.path.join(folder_path,'trunk_v_array.npy'), self.trunk_v_array)
-        np.save(os.path.join(folder_path,'basal_v_array.npy'), self.basal_v_array)
-        np.save(os.path.join(folder_path,'tuft_v_array.npy'), self.tuft_v_array)
-
-        np.save(os.path.join(folder_path,'basal_bg_i_nmda_array.npy'), self.basal_bg_i_nmda_array)
-        np.save(os.path.join(folder_path,'basal_bg_i_ampa_array.npy'), self.basal_bg_i_ampa_array)
-        np.save(os.path.join(folder_path,'tuft_bg_i_nmda_array.npy'), self.tuft_bg_i_nmda_array)
-        np.save(os.path.join(folder_path,'tuft_bg_i_ampa_array.npy'), self.tuft_bg_i_ampa_array)
-
-        np.save(os.path.join(folder_path,'dend_v_array.npy'), self.dend_v_array)
-        np.save(os.path.join(folder_path,'dend_i_array.npy'), self.dend_i_array)
-        np.save(os.path.join(folder_path,'dend_nmda_i_array.npy'), self.dend_nmda_i_array)
-        np.save(os.path.join(folder_path,'dend_ampa_i_array.npy'), self.dend_ampa_i_array)
-        np.save(os.path.join(folder_path,'dend_nmda_g_array.npy'), self.dend_nmda_g_array)
-        np.save(os.path.join(folder_path,'dend_ampa_g_array.npy'), self.dend_ampa_g_array)
 
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
         
@@ -614,176 +535,17 @@ class CellWithNetworkx:
 
         soma_v = h.Vector().record(self.complex_cell.soma[0](0.5)._ref_v)
         apic_v = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_v)
-        apic_ica = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_ica)
-
-        trunk_v = h.Vector().record(self.complex_cell.apic[3](0)._ref_v)
-        basal_v = h.Vector().record(self.complex_cell.dend[71-1](0.5)._ref_v) # the 71th dendrite (tip), L: 178.7, order: 3, distance to root: 192.8
-        tuft_v = h.Vector().record(self.complex_cell.apic[152-85](0.5)._ref_v) # the 152th dendrite (tip), L: 192.8, order: 3, distance to root: 565.0
-
-        # EPSC record (VClamp)
-        vc = h.SEClamp(self.complex_cell.soma[0](0.5))   
-        # vc.dur1 = 1000  # Long duration to hold the voltage
-        # vc.amp1 = 60   # Holding voltage at 60 mV
-        soma_i = h.Vector().record(vc._ref_i)
-
-        try:
-            # Record summed local background NMDA current at the basal tip branch
-            exc_syn_on_basal_sec = self.section_synapse_df[(self.section_synapse_df['section_id_synapse'] == 71) &
-                                                        (self.section_synapse_df['type'] == 'A')]['synapse']
-            basal_bg_i_nmda_list = []
-            basal_bg_i_ampa_list = []
-            
-            for exc_syn in exc_syn_on_basal_sec:
-
-                try:
-                    basal_bg_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)
-                except AttributeError:
-                    basal_bg_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-
-                basal_bg_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-
-                basal_bg_i_nmda_list.append(basal_bg_i_nmda)
-                basal_bg_i_ampa_list.append(basal_bg_i_ampa)
-
-            # Record summed local background NMDA current at the tuft tip branch
-            exc_syn_on_tuft_sec = self.section_synapse_df[(self.section_synapse_df['section_id_synapse'] == 152) &
-                                                        (self.section_synapse_df['type'] == 'A')]['synapse']
-            tuft_bg_i_nmda_list = []  
-            tuft_bg_i_ampa_list = []
-
-            for exc_syn in exc_syn_on_tuft_sec:
-
-                try:
-                    tuft_bg_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)                
-                except AttributeError:
-                    tuft_bg_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-
-                tuft_bg_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-
-                tuft_bg_i_nmda_list.append(tuft_bg_i_nmda)
-                tuft_bg_i_ampa_list.append(tuft_bg_i_ampa)
-            
-        except AttributeError:
-            pass
-
-        # Record center synapse voltage and current at each cluster
-        dend_v_list = []
-        dend_i_list_list = []
-        dend_i_nmda_list_list = []
-        dend_i_ampa_list_list = []
-        dend_g_nmda_list_list = []
-        dend_g_ampa_list_list = []
-
-        print('num_syn_per_clus: ', [len(self.section_synapse_df[(self.section_synapse_df['cluster_id'] == i)]['segment_synapse'].values) for i in range(self.num_clusters_sampled)],
-              ' num_clus: ', len(self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1)]['cluster_id'].values), '\n')
-              
-        for cluster_id in range(self.num_clusters_sampled):
-            
-            # choose the center synapse of each cluster (spatial condition: clus)
-            cluster_ctr = self.section_synapse_df[(self.section_synapse_df['cluster_id'] == cluster_id) &
-                                                (self.section_synapse_df['cluster_center_flag'] == 1)]['segment_synapse'].values[0]
-            
-            dend_v = h.Vector().record(cluster_ctr._ref_v)
-
-            clustered_sec = np.unique(self.section_synapse_df[self.section_synapse_df['cluster_id'] == cluster_id]['section_synapse'])
-            exc_syn_on_clus_sec = self.section_synapse_df[(self.section_synapse_df['section_synapse'].isin(clustered_sec)) & 
-                                                            (self.section_synapse_df['type'].isin(['A']))]['synapse']
-            exc_syn_on_clus_sec_filt = list(filter(None, exc_syn_on_clus_sec)) # Not work: exc_syn_on_clus_sec[exc_syn_on_clus_sec!=None]
-            
-            dend_i_list = []
-            dend_i_nmda_list = []
-            dend_i_ampa_list = []
-            dend_g_nmda_list = []
-            dend_g_ampa_list = []
-
-            for exc_syn in exc_syn_on_clus_sec_filt:
-                
-                dend_i = h.Vector().record(exc_syn._ref_i)
-
-                try:
-                    dend_i_nmda = h.Vector().record(exc_syn._ref_i_NMDA)
-                    dend_g_nmda = h.Vector().record(exc_syn._ref_g_NMDA)
-                except AttributeError:
-                    dend_i_nmda = h.Vector().record(exc_syn._ref_i_AMPA)
-                    dend_g_nmda = h.Vector().record(exc_syn._ref_g_AMPA)
-
-                dend_i_ampa = h.Vector().record(exc_syn._ref_i_AMPA)
-                dend_g_ampa = h.Vector().record(exc_syn._ref_g_AMPA)
-                
-                dend_i_list.append(dend_i)
-                dend_i_nmda_list.append(dend_i_nmda)
-                dend_i_ampa_list.append(dend_i_ampa)
-                dend_g_nmda_list.append(dend_g_nmda)
-                dend_g_ampa_list.append(dend_g_ampa)
-
-            dend_v_list.append(dend_v)
-            dend_i_list_list.append(dend_i_list)
-            dend_i_nmda_list_list.append(dend_i_nmda_list)
-            dend_i_ampa_list_list.append(dend_i_ampa_list)
-            dend_g_nmda_list_list.append(dend_g_nmda_list)
-            dend_g_ampa_list_list.append(dend_g_ampa_list)
-
-        # Reset the voltage of segments
-        # seg_v = [h.Vector().record(seg._ref_v) for sec in h.allsec() for seg in sec]
-
-        # netcons_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['netcon'].values[:3])
-        # spk_trains_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['spike_train'].values[:3])
-
-        # spike_times = [h.Vector() for _ in netcons_list]
-        # for nc, spike_times_vec in zip(netcons_list, spike_times):
-        #     nc.record(spike_times_vec)
 
         # Simulate the full neuron for 1 seconds
         time_start = time.time()
         h.tstop = self.SIMU_DURATION
         h.run()
         print(f"Simulation time: {np.round(time.time() - time_start, 2)}")
-        
-        # for i in range(len(spike_times)):
-        #     try:
-        #         print(np.array(spike_times[i]))
-        #     except ValueError:
-        #         print([])
-
-        #     try:
-        #         print(spk_trains_list[i])
-        #     except ValueError:
-        #         print([])
-
-        # if np.array(soma_v).max() < 0:
-        #     return False
-
-        # visualize_morpho(self.section_synapse_df, soma_v, seg_v, folder_path)
 
         with self.lock:
 
             self.soma_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(soma_v)
             self.apic_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(apic_v)
-            self.apic_ica_array[:, num_stim, num_aff_fiber, num_trial] = np.array(apic_ica)
-
-            self.soma_i_array[:, num_stim, num_aff_fiber, num_trial] = np.array(soma_i)
-
-            self.trunk_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(trunk_v)
-            self.basal_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(basal_v)
-            self.tuft_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(tuft_v)
-
-            try:
-                self.basal_bg_i_nmda_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(basal_bg_i_nmda_list), axis=0)
-                self.basal_bg_i_ampa_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(basal_bg_i_ampa_list), axis=0)
-                self.tuft_bg_i_ampa_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(tuft_bg_i_ampa_list), axis=0)
-                self.tuft_bg_i_nmda_array[:, num_stim, num_aff_fiber, num_trial] = np.average(np.array(tuft_bg_i_nmda_list), axis=0)
-
-            except UnboundLocalError:
-                pass
-            
-            for cluster_id in range(self.num_clusters_sampled):
-                self.dend_v_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.array(dend_v_list[cluster_id])
-                self.dend_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_list_list[cluster_id]), axis=0)
-                self.dend_nmda_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_nmda_list_list[cluster_id]), axis=0)
-                self.dend_nmda_g_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_g_nmda_list_list[cluster_id]), axis=0)
-                
-                self.dend_ampa_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_i_ampa_list_list[cluster_id]), axis=0)
-                self.dend_ampa_g_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.average(np.array(dend_g_ampa_list_list[cluster_id]), axis=0)
 
         return True
     
@@ -802,7 +564,7 @@ class CellWithNetworkx:
             section_length = np.array(self.section_df.loc[self.section_df['section_type'] == 'soma', 'length'])
 
         def generate_synapse(_):
-            section = random.choices(sections, weights=section_length)[0][0].sec # rnd does not have a choices method
+            section = random.choices(sections, weights=section_length)[0][0].sec
             section_name = section.psection()['name']
             
             section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].iat[0]
@@ -879,11 +641,14 @@ def build_cell(**params):
     epoch= params.values()
 
     # time_tag = time.strftime("%Y%m%d", time.localtime())
+    # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag
+
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
     if basal_channel_type == 'AMPANMDA':                                                                                
-        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_REAL' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
+        simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_funcgroup2_var2' #_variedW_tau43_addNaK_woAP+Ca_aligned_varyinh' # + '_ratio1' + '_exc1.1-1.3' + '_inh4' + '_failprob0.5' + '_funcgroup10'
     elif basal_channel_type == 'AMPA':
-            simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_multiclus_AMPA' #variedW_tau43_addNaK_woAP+Ca_aligned_varyinh_AMPA' 
+            simu_folder = sec_type + '_range' + str(distance_to_root) + '_' + spat_condtion + '_' + simu_condition + '_NATURAL_funcgroup2_var2_AMPA' #variedW_tau43_addNaK_woAP+Ca_aligned_varyinh_AMPA' 
+    
     # get the remainder of the folder_tag to 42, use 42 instead of 0 for exact division   
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
     folder_path = '/G/results/simulation/' + simu_folder + '/' + folder_tag + '/' + str(epoch)
@@ -954,31 +719,45 @@ def run_processes(parameters_list, epoch):
         process.join()  # Join each batch of processes before moving to the next parameter set
 
 def run_combination(args):
-    sec_type, spat_cond, dis_to_root = args
-    params_list = generate_simu_params(sec_type, spat_cond, dis_to_root)
-    for epoch in range(11, 51):
-        run_processes(params_list, epoch)
+    sec_type, spat_cond, dis_to_root, epoch = args
+    params_list = generate_simu_params_REAL(sec_type, spat_cond, dis_to_root)
+    # for epoch in range(1, 2):
+    run_processes(params_list, epoch)
 
 if __name__ == "__main__":
 
     # # Running for sing-cluster analysis (nonlinearity) 
     # combinations = [
-    #     (sec_type, spat_cond, dis_to_root)
-    #     for sec_type in ['basal', 'apical']
+    #     (sec_type, spat_cond, dis_to_root, epoch)
+    #     for sec_type in ['basal']
     #     for spat_cond in ['clus']
-    #     for dis_to_root in [0, 1, 2] 
-    #     # for epoch in range(1, 4)
+    #     for dis_to_root in [0] 
+    #     for epoch in range(1, 4)
     # ]
     # with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:  # 根据CPU核心数调整 multiprocessing.cpu_count()
     #     executor.map(run_combination, combinations)
 
+    for batch_idx in range(100, 100): 
+        start_epoch = 1 + batch_idx * 10
+        end_epoch = start_epoch + 10  # 不包含end_epoch
+        combinations = [
+            (sec_type, spat_cond, dis_to_root, epoch)
+            for sec_type in ['basal']
+            for spat_cond in ['clus']
+            for dis_to_root in [0]
+            for epoch in range(start_epoch, end_epoch)
+        ]
+        with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            executor.map(run_combination, combinations)
+
+
     # multiprocessing.set_start_method('spawn', force=True) # Use spawn will initiate too many NEURON instances 
 
-    # Running for multi-cluster analysis
-    for sec_type in ['basal']: # ['basal', 'apical']
-        for spat_cond in ['clus']: # ['clus', 'distr']
-            for dis_to_root in [0]: # [0, 1, 2]
-                params_list = generate_simu_params(sec_type, spat_cond, dis_to_root)
-                for epoch in range(1, 6):
-                    run_processes(params_list, epoch)
+    # # Running for multi-cluster analysis
+    # for sec_type in ['basal']: # ['basal', 'apical']
+    #     for dis_to_root in [0]: # [0, 1, 2]
+    #         for spat_cond in ['clus']: # ['clus', 'distr']
+    #             params_list = generate_simu_params_REAL(sec_type, spat_cond, dis_to_root)
+    #             for epoch in range(1, 11):
+    #                 run_processes(params_list, epoch)
 

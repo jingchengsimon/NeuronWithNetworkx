@@ -187,7 +187,7 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
             # pink_noise = pink_noise / np.mean(pink_noise)
 
             if section['region'] == 'basal':
-                counts = spk_rnd.poisson(FREQ_EXC/1000 * pink_noise)#pink_noise[seg_idx, tri_idx]) 
+                counts = spk_rnd.poisson(FREQ_EXC/1000 * pink_noise)
             elif section['region'] == 'apical':
                 counts = spk_rnd.poisson(FREQ_EXC/(input_ratio_basal_apic*1000) * pink_noise)
 

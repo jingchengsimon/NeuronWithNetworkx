@@ -508,7 +508,7 @@ class CellWithNetworkx:
             iter_step = 2
 
         # self.num_activated_preunit_list = range(0, self.num_preunit + 1, iter_step) # for sing-clus (add 1 is to allow the last num_preunit to be included)
-        self.num_activated_preunit_list = [0] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        self.num_activated_preunit_list = [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         self.soma_v_array = np.zeros((num_time_points, self.num_stim, num_aff_fibers, num_trials))
@@ -979,6 +979,6 @@ if __name__ == "__main__":
         for spat_cond in ['clus']: # ['clus', 'distr']
             for dis_to_root in [0]: # [0, 1, 2]
                 params_list = generate_simu_params(sec_type, spat_cond, dis_to_root)
-                for epoch in range(1, 6):
+                for epoch in range(1, 2):
                     run_processes(params_list, epoch)
 

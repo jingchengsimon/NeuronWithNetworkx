@@ -14,17 +14,17 @@
 					"label": ""
 				},
 				{
-					"line": 486,
+					"line": 487,
 					"column": 8,
 					"label": ""
 				},
 				{
-					"line": 659,
+					"line": 660,
 					"column": 17,
 					"label": ""
 				},
 				{
-					"line": 677,
+					"line": 678,
 					"column": 20,
 					"label": ""
 				}
@@ -84,7 +84,7 @@
 					"label": ""
 				},
 				{
-					"line": 421,
+					"line": 422,
 					"column": 59,
 					"label": ""
 				}
@@ -111,6 +111,16 @@
 				{
 					"line": 391,
 					"column": 33,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "3_trace_analysis.ipynb",
+			"bookmarks": [
+				{
+					"line": 143,
+					"column": 21,
 					"label": ""
 				}
 			]

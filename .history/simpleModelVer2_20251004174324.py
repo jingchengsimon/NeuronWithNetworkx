@@ -979,6 +979,6 @@ if __name__ == "__main__":
         for spat_cond in ['clus']: # ['clus', 'distr']
             for dis_to_root in [0]: # [0, 1, 2]
                 params_list = generate_simu_params(sec_type, spat_cond, dis_to_root)
-                for epoch in range(1, 6):
+                for epoch in range(1, 2):
                     run_processes(params_list, epoch)
 
