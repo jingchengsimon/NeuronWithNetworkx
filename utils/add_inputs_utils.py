@@ -1,9 +1,7 @@
 from neuron import h
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
-from functools import partial
 from tqdm import tqdm
-import time
 import numpy as np
 import pandas as pd
 import json
@@ -13,7 +11,7 @@ from utils.generate_pink_noise import make_noise
 
 def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
-                              epoch_idx, spk_epoch_idx, spat_condition, section_synapse_df_clus):
+                              epoch_idx, spk_epoch_idx, spat_condition, num_clus_condition, section_synapse_df_clus):
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
@@ -46,10 +44,10 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
             
             else:
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
-                if spat_condition == 'clus':
+                if spat_condition == 'clus' and num_clus_condition == 'single':
                     # initW_distr = loc_rnd.choice(syn_w_distr, 1)[0]
                     initW_distr =  initW_distr_array[i]
-                elif spat_condition == 'distr':
+                else:
                     initW_distr = section_clus['syn_w'] / 1000
                 syn_params['initW'] = initW_distr # variedW
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], bg_exc_channel_type)
@@ -57,7 +55,7 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         else:
             synapse = section['synapse']
 
-        if spat_condition == 'clus':
+        if spat_condition == 'clus' and num_clus_condition == 'single':
             # Use np.random.poisson to generate the spike counts independently
             # Remember to divide by 1000 to get the rate per ms
             
@@ -81,7 +79,7 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
             mask = spk_rnd.choice([True, False], size=spike_train_bg.shape, p=[0.5, 0.5])
             spike_train_bg = spike_train_bg[mask]
 
-        elif spat_condition == 'distr':
+        else:
             # the corresponding spike train with the identical number of synchronous inputs
             spike_train_bg = ast.literal_eval(section_clus['spike_train_bg'])[0]
 
@@ -234,7 +232,7 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
     return section_synapse_df
 
 def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, 
-                              inh_delay, spk_epoch_idx, spat_condition, 
+                              inh_delay, spk_epoch_idx, spat_condition, num_clus_condition,
                               section_synapse_df_clus, num_activated_preunit_idx):  
     
     spk_rnd = np.random.default_rng(spk_epoch_idx)  # Create a new random state
@@ -343,9 +341,9 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
         # instead to just record the time point with spikes more than 1 
         # since we should repeat those time points with spikes mor than 2
 
-        if spat_condition == 'clus':
+        if spat_condition == 'clus' and num_clus_condition == 'single':
             spike_train_bg = spike_trains_inh[i]
-        elif spat_condition == 'distr':
+        else:
             # the corresponding spike train with the identical number of synchronous inputs
             spike_train_bg = ast.literal_eval(section_clus['spike_train_bg'])[num_activated_preunit_idx] 
 
@@ -419,7 +417,7 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
                 initW_distr = get_next_initW(initW_distr_lists, section['pre_unit_id'])
                 
                 # fixedW
-                # initW_distr =  initW 
+                # initW_distr = initW 
 
                 syn_params['initW'] = initW_distr
                 # syn_params['ratio_NMDA_to_AMPA'] = 3.3

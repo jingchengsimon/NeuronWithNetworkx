@@ -47,10 +47,10 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
 
     return pref_ori_dg, indices
 
-def generate_vecstim(rnd, pre_unit_ids, num_stim, stim_time, DURATION):
+def generate_vecstim(rnd, pre_unit_ids, num_stim, stim_time, stim_time_var=5):
     spt_unit_list = []
     
-    for pre_unit_id in pre_unit_ids:
+    for _ in pre_unit_ids:
         ## Artificial spike trains
         # try:
         #     spt_unit = spt_grouped_df.get_group((unit_id, stim_id))
@@ -70,7 +70,7 @@ def generate_vecstim(rnd, pre_unit_ids, num_stim, stim_time, DURATION):
         # Comment out only for test
         # np.random.seed(int(time.time())) # Reset the random number generator
         
-        spt_unit = np.floor(rnd.normal(loc=stim_time, scale=5, size=num_stim)) # Varied stimulus time
+        spt_unit = np.floor(rnd.normal(loc=stim_time, scale=stim_time_var, size=num_stim)) # Varied stimulus time
         # spt_unit = np.floor(np.array([stim_time] * num_stim)) # Fixed stimulus time
 
         # np.random.seed(pre_unit_id)
