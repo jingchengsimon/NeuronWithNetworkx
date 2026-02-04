@@ -3,8 +3,8 @@ from scipy import signal as ss
 from scipy.stats import zscore
 import matplotlib.pyplot as plt
 
-def make_noise(num_traces=10, num_samples=1000, spk_epoch_idx=42, scale=0.5):
-    np.random.seed(spk_epoch_idx)
+def make_noise(num_traces=10, num_samples=1000, spike_gen_seed=42, scale=0.5):
+    np.random.seed(spike_gen_seed)
     
     num_samples = num_samples+2000
     # Normalised Frequencies

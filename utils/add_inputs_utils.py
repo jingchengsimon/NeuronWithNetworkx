@@ -11,7 +11,7 @@ from utils.generate_pink_noise import make_noise
 
 def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
-                              epoch_idx, spk_epoch_idx, spat_condition, num_clus_condition, section_synapse_df_clus):
+                              synapse_pos_seed, spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus):
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
@@ -19,11 +19,19 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
     sec_syn_bg_exc_df_clus = section_synapse_df_clus[section_synapse_df_clus['type'].isin(['A'])]
 
     num_func_group = num_func_group # (26,000/5)/100 = 52
-    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION)
+    # Fix: Pass spike_gen_seed to make_noise for reproducibility
+    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spike_gen_seed=spike_gen_seed)
     
     # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(epoch_idx)
-    spk_rnd = np.random.default_rng(spk_epoch_idx)  # Create a new random state
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
+    # Fix: Pre-generate seeds for each synapse to ensure deterministic results in multithreading
+    # Use a deterministic hash-like function to generate unique seeds for each synapse index
+    # This ensures each synapse gets a unique but deterministic seed based on spike_gen_seed and index
+    def generate_synapse_seed(base_seed, index):
+        # Use a simple hash-like function to combine base_seed and index
+        # This ensures deterministic but unique seeds for each synapse
+        return (base_seed * 1000003 + index * 100003) % (2**31)
+    
     sigma = 1
     mu = np.log(initW) - 0.5*sigma**2
     syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
@@ -33,6 +41,11 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
     def process_section(i):    
         section = sec_syn_bg_exc_df.iloc[i]
         section_clus = sec_syn_bg_exc_df_clus.iloc[i]
+        
+        # Fix: Create independent RNG for each synapse to ensure deterministic results in multithreading
+        # Use a deterministic seed based on spike_gen_seed and synapse index
+        synapse_seed = generate_synapse_seed(spike_gen_seed, i)
+        spk_rnd = np.random.default_rng(synapse_seed)
         
         if section['synapse'] is None:
             
@@ -115,7 +128,7 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
 # Match segments with function groups of pink noise
 def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
-                              epoch_idx, spk_epoch_idx, spat_condition, section_synapse_df_clus):
+                              synapse_pos_seed, spike_gen_seed, spat_condition, section_synapse_df_clus):
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
@@ -124,11 +137,11 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
 
     segments_dend_df = pd.read_csv('all_segments_dend.csv')
     num_func_group = 2 # segments_dend_df.shape[0] #num_func_group # (26,000/5)/100 = 52
-    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spk_epoch_idx=spk_epoch_idx, scale=0.5)
+    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spike_gen_seed=spike_gen_seed, scale=0.5)
     
     # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(epoch_idx)
-    spk_rnd = np.random.default_rng(spk_epoch_idx)  # Create a new random state
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
+    spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
     sigma = 1
     mu = np.log(initW) - 0.5*sigma**2
     syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
@@ -232,10 +245,10 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
     return section_synapse_df
 
 def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, 
-                              inh_delay, spk_epoch_idx, spat_condition, num_clus_condition,
+                              inh_delay, spike_gen_seed, spat_condition, num_clus_condition,
                               section_synapse_df_clus, num_activated_preunit_idx):  
     
-    spk_rnd = np.random.default_rng(spk_epoch_idx)  # Create a new random state
+    spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
 
     def convert_counts_to_spike_trains(spike_counts_inh, dropout_p=0.5):
         spike_trains = []
@@ -371,10 +384,10 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
     return section_synapse_df
 
 def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, initW, 
-                         spt_unit_array, epoch_idx, num_preunit):  
+                         spt_unit_array, synapse_pos_seed, num_preunit):  
     
     # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(epoch_idx)
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
     sigma = 1
     mu = np.log(initW) - 0.5*sigma**2
     syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)

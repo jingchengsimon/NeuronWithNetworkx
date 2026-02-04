@@ -8,18 +8,18 @@ from utils.generate_pink_noise import make_noise
 # Match segments with function groups of pink noise
 def generate_init_firing(section_synapse_df, DURATION, FREQ_EXC, FREQ_INH,
                          input_ratio_basal_apic, bg_exc_channel_type, num_func_group, 
-                         epoch_idx, spk_epoch_idx, spat_condition):
+                         synapse_pos_seed, spike_gen_seed, spat_condition):
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
 
     segments_dend_df = pd.read_csv('all_segments_dend.csv')
     num_func_group = 2 # segments_dend_df.shape[0] #num_func_group # (26,000/5)/100 = 52
-    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spk_epoch_idx=spk_epoch_idx, scale=0.5)
+    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spike_gen_seed=spike_gen_seed, scale=0.5)
     
     # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(epoch_idx)
-    spk_rnd = np.random.default_rng(spk_epoch_idx)  # Create a new random state
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
+    spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
 
     
     num_segments = segments_dend_df.shape[0]

@@ -25,8 +25,8 @@ from utils.visualize_utils import visualize_morpho
 
 import sys 
 import json
+import argparse
 import multiprocessing
-from utils.genarate_simu_params_utils import generate_simu_params
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
@@ -681,34 +681,35 @@ class CellWithNetworkx:
 # main function
 swc_file_path = './modelFile/cell1.asc'
 
-def build_cell(**params):
-
-    NUM_SYN_BASAL_EXC, \
-    NUM_SYN_APIC_EXC, \
-    NUM_SYN_BASAL_INH, \
-    NUM_SYN_APIC_INH, \
-    NUM_SYN_SOMA_INH, \
-    DURATION, \
-    simu_condition, \
-    spat_condtion, \
-    basal_channel_type, \
-    sec_type, \
-    distance_to_root, \
-    num_clusters, \
-    cluster_radius, \
-    bg_exc_freq, \
-    bg_inh_freq, \
-    input_ratio_basal_apic, \
-    bg_exc_channel_type, \
-    initW, \
-    inh_delay, \
-    num_stim, \
-    stim_time, \
-    num_conn_per_preunit, \
-    num_preunit, \
-    pref_ori_dg, \
-    num_trials, \
-    folder_tag = params.values()
+def build_cell(args):
+    """Build and simulate cell with parameters from argparse"""
+    
+    NUM_SYN_BASAL_EXC = args.num_syn_basal_exc
+    NUM_SYN_APIC_EXC = args.num_syn_apic_exc
+    NUM_SYN_BASAL_INH = args.num_syn_basal_inh
+    NUM_SYN_APIC_INH = args.num_syn_apic_inh
+    NUM_SYN_SOMA_INH = args.num_syn_soma_inh
+    DURATION = args.simu_duration  # Use simu_duration as DURATION for compatibility
+    simu_condition = args.simu_condition
+    spat_condtion = args.spat_condition
+    basal_channel_type = args.basal_channel_type
+    sec_type = args.sec_type
+    distance_to_root = args.distance_to_root
+    num_clusters = args.num_clusters
+    cluster_radius = args.cluster_radius
+    bg_exc_freq = args.bg_exc_freq
+    bg_inh_freq = args.bg_inh_freq
+    input_ratio_basal_apic = args.input_ratio_basal_apic
+    bg_exc_channel_type = args.bg_exc_channel_type
+    initW = args.initW
+    inh_delay = args.inh_delay
+    num_stim = args.num_stim
+    stim_time = args.stim_time
+    num_conn_per_preunit = args.num_conn_per_preunit
+    num_preunit = args.num_syn_per_clus * int(np.ceil(args.num_clusters / 3))  # Calculate num_preunit
+    pref_ori_dg = args.pref_ori_dg
+    num_trials = args.num_trials
+    folder_tag = args.folder_tag
 
     # 创建保存文件夹
     time_tag = time.strftime("%Y%m%d_%H%M", time.localtime())
@@ -764,11 +765,66 @@ def build_cell(**params):
     cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, inh_delay, num_trials)
 
-def run_processes(parameters_list):
+def create_parser():
+    """Create and configure argument parser with default values"""
+    parser = argparse.ArgumentParser(description='Neuron simulation parameters')
+    
+    # Synapse numbers
+    parser.add_argument('--num_syn_basal_exc', type=int, default=10042)
+    parser.add_argument('--num_syn_apic_exc', type=int, default=16070)
+    parser.add_argument('--num_syn_basal_inh', type=int, default=1023)
+    parser.add_argument('--num_syn_apic_inh', type=int, default=1637)
+    parser.add_argument('--num_syn_soma_inh', type=int, default=150)
+    
+    # Simulation duration
+    parser.add_argument('--simu_duration', type=int, default=1000)
+    parser.add_argument('--stim_duration', type=int, default=1000)
+    parser.add_argument('--stim_time', type=int, default=500)
+    parser.add_argument('--num_stim', type=int, default=1)
+    
+    # Channel types
+    parser.add_argument('--basal_channel_type', type=str, default='AMPANMDA', choices=['AMPANMDA', 'AMPA'])
+    parser.add_argument('--bg_exc_channel_type', type=str, default='AMPANMDA', choices=['AMPANMDA', 'AMPA'])
+    
+    # Cluster parameters
+    parser.add_argument('--cluster_radius', type=float, default=5.0)
+    parser.add_argument('--num_clusters', type=int, default=1)
+    parser.add_argument('--num_syn_per_clus', type=int, default=72)
+    parser.add_argument('--num_conn_per_preunit', type=int, default=3)
+    
+    # Simulation conditions
+    parser.add_argument('--simu_condition', type=str, default='invivo', choices=['invivo', 'invitro'])
+    parser.add_argument('--spat_condition', type=str, default='clus', choices=['clus', 'distr'])
+    parser.add_argument('--sec_type', type=str, default='basal', choices=['basal', 'apical'])
+    parser.add_argument('--distance_to_root', type=int, default=0)
+    
+    # Background input parameters
+    parser.add_argument('--bg_exc_freq', type=float, default=1.0)
+    parser.add_argument('--bg_inh_freq', type=float, default=4.0)
+    parser.add_argument('--input_ratio_basal_apic', type=float, default=1.0)
+    
+    # Synaptic weight parameters
+    parser.add_argument('--initW', type=float, default=0.0004)
+    parser.add_argument('--num_func_group', type=int, default=10)
+    parser.add_argument('--inh_delay', type=float, default=4.0)
+    
+    # Other parameters
+    parser.add_argument('--pref_ori_dg', type=float, default=0.0)
+    parser.add_argument('--num_trials', type=int, default=1)
+    parser.add_argument('--folder_tag', type=str, default='1')
+    parser.add_argument('--epoch', type=int, default=1)
+    
+    # Random seeds
+    parser.add_argument('--synapse_pos_seed', type=int, default=None)
+    parser.add_argument('--spike_gen_seed', type=int, default=None)
+    
+    return parser
 
+def run_processes(args_list):
+    """Run multiple processes with different parameter sets"""
     processes = []
-    for params in parameters_list:
-        process = multiprocessing.Process(target=build_cell, kwargs=params)
+    for args in args_list:
+        process = multiprocessing.Process(target=build_cell, args=(args,))
         processes.append(process)
         process.start()
 
@@ -776,6 +832,7 @@ def run_processes(parameters_list):
         process.join()
 
 if __name__ == "__main__":
-
-    params_list = generate_simu_params()
-    run_processes(params_list)
+    parser = create_parser()
+    args = parser.parse_args()
+    args_list = [args]
+    run_processes(args_list)
