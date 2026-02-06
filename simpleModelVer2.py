@@ -161,6 +161,7 @@ class CellWithNetworkx:
         self.dend_ampa_g_array = None
 
         self.with_global_rec = with_global_rec
+        self.seg_v_array = None
         self.seg_ina_array = None
         self.seg_inmda_array = None
 
@@ -581,8 +582,8 @@ class CellWithNetworkx:
         # Then include step, step*2, step*3, ..., up to num_preunit (sparse)
         sparse_part = list(range(iter_step, self.num_preunit + 1, iter_step))  # for sing-clus (add 1 is to allow the last num_preunit to be included)
         # Combine and remove duplicates while preserving order
-        self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
-        # self.num_activated_preunit_list = [self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        # self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
+        self.num_activated_preunit_list = [self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         # Initialize arrays with common shape
@@ -615,6 +616,7 @@ class CellWithNetworkx:
         if self.with_global_rec:
             num_segments_noaxon = len(self.all_segments_noaxon)
             seg_global_shape = (num_segments_noaxon, num_time_points, self.num_stim, num_aff_fibers, num_trials)
+            self.seg_v_array = np.zeros(seg_global_shape)
             self.seg_ina_array = np.zeros(seg_global_shape)
             self.seg_inmda_array = np.zeros(seg_global_shape)
 
@@ -674,9 +676,13 @@ class CellWithNetworkx:
             'dend_ampa_i_array': self.dend_ampa_i_array, 'dend_nmda_g_array': self.dend_nmda_g_array,
             'dend_ampa_g_array': self.dend_ampa_g_array
         }
-        if self.with_global_rec and self.seg_ina_array is not None and self.seg_inmda_array is not None:
-            arrays_to_save['seg_ina_array'] = self.seg_ina_array
-            arrays_to_save['seg_inmda_array'] = self.seg_inmda_array
+        if self.with_global_rec:
+            if self.seg_v_array is not None:
+                arrays_to_save['seg_v_array'] = self.seg_v_array
+            if self.seg_ina_array is not None:
+                arrays_to_save['seg_ina_array'] = self.seg_ina_array
+            if self.seg_inmda_array is not None:
+                arrays_to_save['seg_inmda_array'] = self.seg_inmda_array
 
         for name, array in arrays_to_save.items():
             np.save(os.path.join(folder_path, f'{name}.npy'), array)
@@ -798,11 +804,12 @@ class CellWithNetworkx:
             dend_g_ampa_list_list.append(dend_g_ampa_list)
 
         
-        # Repertoire of ina (Na current, built-in) and per-segment iNMDA; only when global recording is enabled
+        # Repertoire of seg_v (voltage), seg_ina (Na current, built-in) and per-segment iNMDA; only when global recording is enabled
+        seg_v = None
         seg_ina = None
         seg_inmda_vectors = None
-        if self.with_global_rec:\
-            # seg_v = [h.Vector().record(seg._ref_v) for seg in self.all_segments_noaxon]
+        if self.with_global_rec:
+            seg_v = [h.Vector().record(seg._ref_v) for seg in self.all_segments_noaxon]
             seg_ina = [h.Vector().record(seg._ref_ina) for seg in self.all_segments_noaxon]
             seg_to_syns = defaultdict(list)
             for _, row in self.section_synapse_df[self.section_synapse_df['type'] == 'A'].iterrows():
@@ -895,7 +902,8 @@ class CellWithNetworkx:
                 self.dend_ampa_i_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.sum(np.array(dend_i_ampa_list_list[cluster_id]), axis=0)
                 self.dend_ampa_g_array[cluster_id, :, num_stim, num_aff_fiber, num_trial] = np.sum(np.array(dend_g_ampa_list_list[cluster_id]), axis=0)
 
-            if self.with_global_rec and seg_ina is not None and seg_inmda is not None:
+            if self.with_global_rec and seg_v is not None and seg_ina is not None and seg_inmda is not None:
+                self.seg_v_array[:, :, num_stim, num_aff_fiber, num_trial] = np.array([list(v) for v in seg_v])
                 self.seg_ina_array[:, :, num_stim, num_aff_fiber, num_trial] = np.array([list(v) for v in seg_ina])
                 self.seg_inmda_array[:, :, num_stim, num_aff_fiber, num_trial] = np.array(seg_inmda)
 
@@ -1060,7 +1068,7 @@ def build_cell(args):
         channel_suffix += '_ap'
     if with_global_rec:
         channel_suffix += '_globrec'
-    simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}_spktimevar'
+    simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}'
     
     # Normalize folder tag
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
@@ -1161,10 +1169,10 @@ if __name__ == "__main__":
     param_config = {
         'sec_type': ['basal'],           # Section types: ['basal', 'apical']
         'dis_to_root': [1],              # Distance to root: [0, 1, 2]
-        'spat_cond': ['clus', 'distr'],           # Spatial condition: ['clus', 'distr']
+        'spat_cond': ['distr'],           # Spatial condition: ['clus', 'distr']
         'batch_config': {
             'num_batches': 1,            # Number of batches
-            'epochs_per_batch': 10,       # Epochs per batch
+            'epochs_per_batch': 1,       # Epochs per batch
             'start_epoch': 1             # Starting epoch number
         }
     }
