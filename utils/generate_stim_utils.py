@@ -1,7 +1,6 @@
 import glob
 import pandas as pd
 import numpy as np
-import time
 
 def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
     

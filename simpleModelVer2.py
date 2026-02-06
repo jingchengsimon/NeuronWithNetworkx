@@ -32,7 +32,7 @@ warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                 synapse_pos_seed, spike_gen_seed, with_ap=False, with_global_rec=False):
+                 syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False):
         """
         Initialize cell with networkx structure.
         
@@ -42,12 +42,12 @@ class CellWithNetworkx:
             bg_inh_freq: Background inhibitory frequency (Hz)
             SIMU_DURATION: Simulation duration (ms)
             STIM_DURATION: Stimulation duration (ms)
-            synapse_pos_seed: Random seed for synapse positioning (controls synapse locations, 
+            syn_pos_seed: Random seed for synapse positioning (controls synapse locations, 
                             cluster positions, and synapse weights). Should be fixed across 
                             simulations to maintain consistent morphology.
-            spike_gen_seed: Random seed for spike generation (controls spike trains, pink noise,
-                          and temporal firing patterns). Should vary across simulations to 
-                          generate different temporal dynamics.
+            bg_spike_gen_seed: Random seed for background (bg) spike generation (bg spike trains, pink noise). Used by add_background_*_inputs.
+            clus_spike_gen_seed: Random seed for cluster stimulus spike generation (stim times in
+                          generate_vecstim, preunit permutation). If None, falls back to bg_spike_gen_seed.
             with_ap: If True, use L5PCbiophys3withNaCa.hoc (with AP and Ca), 
                     else use L5PCbiophys3.hoc (default: False)
             with_global_rec: If True, record seg_ina and seg_inmda for all segments and save to npy (default: False)
@@ -75,15 +75,17 @@ class CellWithNetworkx:
         self.num_syn_apic_inh = 0
         self.num_syn_soma_inh = 0
 
-        # Random seed for spike generation (temporal dynamics)
-        # Controls: spike trains, pink noise generation, firing patterns
-        self.spike_gen_seed = spike_gen_seed
+        # Random seed for background (bg) spike generation (temporal dynamics)
+        # Controls: bg spike trains, pink noise generation, firing patterns (add_background_*_inputs)
+        self.bg_spike_gen_seed = bg_spike_gen_seed
+        # Random seed for cluster stimulus: stim times in generate_vecstim, preunit permutation
+        self.clus_spike_gen_seed = clus_spike_gen_seed if clus_spike_gen_seed is not None else bg_spike_gen_seed
         
         # Random seed for synapse positioning (spatial structure)
         # Controls: synapse locations, cluster positions, synapse weights
-        self.synapse_pos_seed = synapse_pos_seed
-        self.rnd = np.random.default_rng(synapse_pos_seed)  # For synapse position selection
-        random.seed(synapse_pos_seed)  # For Python random.choices in add_single_synapse
+        self.syn_pos_seed = syn_pos_seed
+        self.rnd = np.random.default_rng(syn_pos_seed)  # For synapse position selection
+        random.seed(syn_pos_seed)  # For Python random.choices in add_single_synapse
 
         if bg_exc_freq != 0:
             self.spike_interval = 1000/bg_exc_freq # interval=1000(ms)/f
@@ -307,13 +309,13 @@ class CellWithNetworkx:
         self.num_conn_per_preunit = num_conn_per_preunit
         self.num_preunit = num_preunit
 
-        # Use synapse_pos_seed for cluster positioning (spatial structure)
-        clus_loc_rnd = np.random.RandomState(self.synapse_pos_seed)
+        # Use syn_pos_seed for cluster positioning (spatial structure)
+        clus_loc_rnd = np.random.RandomState(self.syn_pos_seed)
         
         for i in range(self.num_clusters):
 
             loop_count = 0
-            # clus_loc_rnd = np.random.RandomState(self.synapse_pos_seed + i)
+            # clus_loc_rnd = np.random.RandomState(self.syn_pos_seed + i)
 
             # Unassigned background synapses for surround synapses
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A') & 
@@ -539,16 +541,16 @@ class CellWithNetworkx:
             num_clus_condition = 'single'
             section_synapse_df_clus = self.section_synapse_df
 
-        # Use spike_gen_seed for spike train generation (temporal dynamics)
-        spk_rnd = np.random.RandomState(self.spike_gen_seed) 
+        # Cluster stimulus: use clus_spike_gen_seed for stim time generation and preunit order
+        clus_spk_rnd = np.random.RandomState(self.clus_spike_gen_seed)
 
         spt_unit_array_list = []
         stim_time_var = 5
         for num_stim in range(1, self.num_stim + 1):
-            spt_unit_array = generate_vecstim(spk_rnd, self.unit_ids, num_stim, self.stim_time, stim_time_var)
+            spt_unit_array = generate_vecstim(clus_spk_rnd, self.unit_ids, num_stim, self.stim_time, stim_time_var)
             spt_unit_array_list.append(spt_unit_array)
         
-        perm = spk_rnd.permutation(self.num_preunit)
+        perm = clus_spk_rnd.permutation(self.num_preunit)
         
         ## Rearrange the perm to always start with the first syn of the first cluster
         pre_unit_id_first_syn = self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1) &
@@ -571,10 +573,16 @@ class CellWithNetworkx:
         if 'expected' in folder_path:
             iter_step = 1
         else:
-            iter_step = 2
+            iter_step = 4
 
-        # self.num_activated_preunit_list = range(0, self.num_preunit + 1, iter_step) # for sing-clus (add 1 is to allow the last num_preunit to be included)
-        self.num_activated_preunit_list = [self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        # Generate preunit list with "dense first, sparse later" pattern
+        # First include all integers from 0 to step (dense)
+        dense_part = list(range(0, iter_step + 1))
+        # Then include step, step*2, step*3, ..., up to num_preunit (sparse)
+        sparse_part = list(range(iter_step, self.num_preunit + 1, iter_step))  # for sing-clus (add 1 is to allow the last num_preunit to be included)
+        # Combine and remove duplicates while preserving order
+        self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
+        # self.num_activated_preunit_list = [self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         # Initialize arrays with common shape
@@ -613,7 +621,7 @@ class CellWithNetworkx:
         if simu_condition == 'invivo':
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
-                                    self.synapse_pos_seed, self.spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus)
+                                    self.syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
 
@@ -639,7 +647,7 @@ class CellWithNetworkx:
                         spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit][-1]]
                         
                     add_clustered_inputs(self.section_synapse_df, self.num_clusters, self.basal_channel_type, 
-                                         self.initW, spt_unit_array_truncated, self.synapse_pos_seed, self.num_preunit)
+                                         self.initW, spt_unit_array_truncated, self.syn_pos_seed, self.num_preunit)
                     
                 # for num_trial in range(num_trials): # 20
 
@@ -647,7 +655,7 @@ class CellWithNetworkx:
                     if simu_condition == 'invivo':
                         num_activated_preunit_idx = self.num_activated_preunit_list.index(num_activated_preunit)
                         add_background_inh_inputs(self.section_synapse_df, self.syn_param_inh, self.SIMU_DURATION, self.FREQ_INH,  
-                                                self.inh_delay, self.spike_gen_seed, spat_condition, num_clus_condition,
+                                                self.inh_delay, self.bg_spike_gen_seed, spat_condition, num_clus_condition,
                                                 section_synapse_df_clus, num_activated_preunit_idx)
                 
                 for num_trial in range(num_trials):
@@ -980,12 +988,14 @@ def create_parser():
                         help='Epoch number (default: 1)')
     
     # Random seeds - both default to epoch value
-    parser.add_argument('--synapse_pos_seed', type=int, default=None,
+    parser.add_argument('--syn_pos_seed', type=int, default=None,
                         help='Random seed for synapse positioning (locations, clusters, weights). '
                              'If None, uses epoch value. Controls spatial structure (default: None)')
-    parser.add_argument('--spike_gen_seed', type=int, default=None,
-                        help='Random seed for spike generation (spike trains, pink noise, temporal patterns). '
-                             'If None, uses epoch value. Controls temporal dynamics (default: None)')
+    parser.add_argument('--bg_spike_gen_seed', type=int, default=None,
+                        help='Random seed for background (bg) spike generation (bg spike trains, pink noise). If None, uses epoch value (default: None)')
+    parser.add_argument('--clus_spike_gen_seed', type=int, default=None,
+                        help='Random seed for cluster stimulus spike generation (stim times in generate_vecstim, '
+                             'preunit permutation). If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) (default: None)')
     
     # Biophysics model selection
     # Default is False (use L5PCbiophys3.hoc without AP and Ca)
@@ -1032,19 +1042,25 @@ def build_cell(args):
     folder_tag = args.folder_tag
     epoch = args.epoch
     
-    # Random seeds: both default to epoch value, but can be set independently
-    # synapse_pos_seed: controls spatial structure (synapse positions, clusters, weights)
-    # spike_gen_seed: controls temporal dynamics (spike trains, pink noise)
-    synapse_pos_seed = args.synapse_pos_seed if args.synapse_pos_seed is not None else epoch
-    spike_gen_seed = args.spike_gen_seed if args.spike_gen_seed is not None else epoch
+    # Random seeds: default to epoch if not set
+    # syn_pos_seed: spatial structure (synapse positions, clusters, weights)
+    # bg_spike_gen_seed: background (bg) spike generation (bg spike trains, pink noise)
+    # clus_spike_gen_seed: cluster stimulus (stim times in generate_vecstim, preunit permutation)
+    syn_pos_seed = args.syn_pos_seed if args.syn_pos_seed is not None else epoch
+    bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
+    clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
     with_ap = args.with_ap
     with_global_rec = args.with_global_rec
   
     # time_tag = time.strftime("%Y%m%d", time.localtime())
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
     # Create simulation folder name
-    channel_suffix = '_singclus_globrec' if basal_channel_type == 'AMPANMDA' else '_singclus_AMPA'
-    simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}'
+    channel_suffix = '_singclus' if basal_channel_type == 'AMPANMDA' else '_singclus_AMPA'
+    if with_ap:
+        channel_suffix += '_ap'
+    if with_global_rec:
+        channel_suffix += '_globrec'
+    simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}_spktimevar'
     
     # Normalize folder tag
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
@@ -1079,8 +1095,9 @@ def build_cell(args):
         'number of connection per preunit': num_conn_per_preunit,
         'number of synapses per cluster': num_syn_per_clus,
         'number of trials': num_trials,
-        'synapse_pos_seed': synapse_pos_seed,
-        'spike_gen_seed': spike_gen_seed,
+        'syn_pos_seed': syn_pos_seed,
+        'bg_spike_gen_seed': bg_spike_gen_seed,
+        'clus_spike_gen_seed': clus_spike_gen_seed,
         'with_ap': with_ap,
         'with_global_rec': with_global_rec,
     }
@@ -1093,7 +1110,7 @@ def build_cell(args):
         json.dump(simulation_params, json_file, indent=4)
 
     cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                            synapse_pos_seed, spike_gen_seed, with_ap, with_global_rec)
+                            syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec)
     cell1.add_synapses(NUM_SYN_BASAL_EXC, 
                                 NUM_SYN_APIC_EXC, 
                                 NUM_SYN_BASAL_INH, 
@@ -1123,61 +1140,54 @@ def run_processes(args_list, epoch):
         process.join()  # Join each batch of processes before moving to the next parameter set
 
 def run_combination(combination_args):
-    """Run combination of parameters for different spatial conditions"""
-    sec_type, dis_to_root, epoch, base_args = combination_args
+    """Run combination of parameters"""
+    sec_type, dis_to_root, spat_cond, epoch, base_args = combination_args
     
-    args_list = []
-    for spat_cond in ['clus']:
-        # Create a copy of base_args (which contains command-line arguments)
-        args = argparse.Namespace(**vars(base_args))
-        # Override with combination-specific values
-        args.sec_type = sec_type
-        args.distance_to_root = dis_to_root
-        args.spat_condition = spat_cond
-        args_list.append(args)
+    # Create a copy of base_args (which contains command-line arguments)
+    args = argparse.Namespace(**vars(base_args))
+    # Override with combination-specific values
+    args.sec_type = sec_type
+    args.distance_to_root = dis_to_root
+    args.spat_condition = spat_cond
     
-    run_processes(args_list, epoch)
+    run_processes([args], epoch)
 
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()  # Parse command-line arguments once
     
-    # Running for sing-cluster analysis (nonlinearity) 
-    # combinations = [
-    #     (sec_type, dis_to_root)
-    #     for sec_type in ['basal', 'apical']
-    #     # for spat_cond in ['clus']
-    #     for dis_to_root in [0, 2] 
-    #     # for epoch in range(1, 6)
-    # ]
-
-    # for batch_idx in range(6, 10): 
-    #     start_epoch = 1 + batch_idx * 5
-    #     end_epoch = start_epoch + 5  # 不包含end_epoch
-
-    #     combinations = [
-    #         (sec_type, dis_to_root, epoch, args)
-    #         for sec_type in ['basal']
-    #         # for spat_cond in ['clus']
-    #         for dis_to_root in [1]
-    #         for epoch in range(start_epoch, end_epoch)
-    #     ]
-    #     with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:  # 根据CPU核心数调整 multiprocessing.cpu_count()
-    #         executor.map(run_combination, combinations)
-
-
-    for batch_idx in range(1): 
-        start_epoch = 1 + batch_idx * 5
-        end_epoch = start_epoch + 1  # 不包含end_epoch
-
+    # Running for sing-cluster analysis (nonlinearity)
+    # Parameter combinations configuration - easy to modify and maintain
+    param_config = {
+        'sec_type': ['basal'],           # Section types: ['basal', 'apical']
+        'dis_to_root': [1],              # Distance to root: [0, 1, 2]
+        'spat_cond': ['clus', 'distr'],           # Spatial condition: ['clus', 'distr']
+        'batch_config': {
+            'num_batches': 1,            # Number of batches
+            'epochs_per_batch': 10,       # Epochs per batch
+            'start_epoch': 1             # Starting epoch number
+        }
+    }
+    
+    # Generate all parameter combinations using itertools.product
+    batch_config = param_config['batch_config']
+    for batch_idx in range(batch_config['num_batches']):
+        start_epoch = batch_config['start_epoch'] + batch_idx * batch_config['epochs_per_batch']
+        end_epoch = start_epoch + batch_config['epochs_per_batch']
+        
+        # Generate all combinations of parameters
         combinations = [
-            (sec_type, dis_to_root, epoch, args)  # Pass parsed args to run_combination
-            for sec_type in ['basal']
-            # for spat_cond in ['clus']
-            for dis_to_root in [1]
+            (sec_type, dis_to_root, spat_cond, epoch, args)
+            for sec_type, dis_to_root, spat_cond in itertools.product(
+                param_config['sec_type'],
+                param_config['dis_to_root'],
+                param_config['spat_cond']
+            )
             for epoch in range(start_epoch, end_epoch)
         ]
-        with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:  # 根据CPU核心数调整 multiprocessing.cpu_count()
+        
+        # Execute combinations in parallel
+        with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
             executor.map(run_combination, combinations)
 
 
