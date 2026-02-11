@@ -3,9 +3,6 @@ import pandas as pd
 import numpy as np
 
 def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
-    
-    pref_ori_dg = 0
-    
     results = [] 
     indices = []
     connections_per_cluster = [0] * num_clusters
@@ -44,7 +41,7 @@ def generate_indices(rnd, num_clusters, num_conn_per_preunit, num_preunit):
         # index_list = [j for j, lst in enumerate(results) if i in lst]
         indices.append(index_list)
 
-    return pref_ori_dg, indices
+    return indices
 
 def generate_vecstim(rnd, pre_unit_ids, num_stim, stim_time, stim_time_var=5):
     spt_unit_list = []

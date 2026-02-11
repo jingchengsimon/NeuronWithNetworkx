@@ -97,9 +97,8 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
             spike_train_bg = ast.literal_eval(section_clus['spike_train_bg'])[0]
 
         if i < 10:
-            # test rnd
-            print(f'syn weight {i}: {initW_distr}')
-            print(f'background spike train {i}: {spike_train_bg}')
+            # test rnd - print syn weight (4 decimals) and bg spike train on same line
+            print(f'syn weight {i}: {initW_distr:.4f}, background spike train {i}: {spike_train_bg}')
             
         netstim = h.VecStim()
         netstim.play(h.Vector(spike_train_bg))
@@ -216,9 +215,8 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
             spike_train_bg = ast.literal_eval(section_clus['spike_train_bg'])[0]
 
         if i < 10:
-            # test rnd
-            print(f'syn weight {i}: {initW_distr}')
-            print(f'background spike train {i}: {spike_train_bg}')
+            # test rnd - print syn weight (4 decimals) and bg spike train on same line
+            print(f'syn weight {i}: {initW_distr:.4f}, background spike train {i}: {spike_train_bg}')
             
         netstim = h.VecStim()
         netstim.play(h.Vector(spike_train_bg))

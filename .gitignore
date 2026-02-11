@@ -1,5 +1,6 @@
 # Ignore history directory
 .history/
+*.pyc
 
 # 忽略 log 文件
 *.log

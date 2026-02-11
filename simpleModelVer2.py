@@ -111,48 +111,47 @@ class CellWithNetworkx:
             'netstim', 'netcon', 'spike_train', 'spike_train_bg'
         ], dtype=object)
                                          
-        # For clustered synapses
+        # For clustered synapses (will be assigned in assign_clustered_synapses)
         self.basal_channel_type = None
         self.sec_type = None
-        self.distance_to_soma = None
         self.num_clusters = None
         self.num_clusters_sampled = None
         self.cluster_radius = None
 
+        # Input parameters (will be assigned in add_inputs)
         self.input_ratio_basal_apic = None
         self.bg_exc_channel_type = None
         self.initW = None
         self.num_func_group = None
         self.inh_delay = None
 
+        # Stimulation parameters (will be assigned in assign_clustered_synapses)
         self.num_stim = None
         self.stim_time = None
         self.num_conn_per_preunit = None
         self.num_preunit = None
 
-        self.ori_dg_list = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
-        self.pref_ori_dg = None
+    
 
+        # Cluster assignment (will be assigned in assign_clustered_synapses)
         self.unit_ids = None
         self.indices = None
-        self.spt_unit_list = None
 
+        # Lists (will be assigned in add_inputs)
         self.num_syn_inh_list = None
         self.num_activated_preunit_list = None
 
+        # Arrays (will be initialized in add_inputs)
         self.soma_v_array = None
         self.apic_v_array = None
         self.apic_ica_array = None
-
         self.trunk_v_array = None
         self.basal_v_array = None
         self.tuft_v_array = None
-
         self.basal_bg_i_nmda_array = None
         self.basal_bg_i_ampa_array = None
         self.tuft_bg_i_nmda_array = None
         self.tuft_bg_i_ampa_array = None
-
         self.dend_v_array = None
         self.dend_i_array = None
         self.dend_nmda_i_array = None
@@ -163,10 +162,7 @@ class CellWithNetworkx:
         self.with_global_rec = with_global_rec
         self.seg_v_array = None
         self.seg_ina_array = None
-        self.seg_inmda_array = None
-
-        # For tuning curve
-        self.num_spikes_df = None 
+        self.seg_inmda_array = None 
 
         self.lock = threading.Lock()
 
@@ -276,8 +272,7 @@ class CellWithNetworkx:
 
         if spat_condition == 'clus':            
             # Number of synapses in each cluster is not fixed
-            self.pref_ori_dg, indices = generate_indices(self.rnd, num_clusters, 
-                                                                    num_conn_per_preunit, num_preunit)
+            indices = generate_indices(self.rnd, num_clusters, num_conn_per_preunit, num_preunit)
             
             self.num_clusters_sampled = num_clusters
 
@@ -328,22 +323,16 @@ class CellWithNetworkx:
             basal_branch_idx_list = [40, 41, 41]
             apic_branch_idx_list = [138, 138, 138]
 
-            if sec_type == 'basal':
-                sec_syn_bg_exc_ordered_df = self.section_synapse_df[
-                    (self.section_synapse_df['region'] == sec_type) &
-                    (self.section_synapse_df['type'] == 'A') &
-                    (self.section_synapse_df['cluster_flag'] == -1) &
-                    (self.section_synapse_df['distance_to_soma'].between(dist_thres_basal[dis_to_root], dist_thres_basal[dis_to_root+1]))]# &
-                    # (self.section_synapse_df['section_id_synapse'] == basal_branch_idx_list[dis_to_root])] # specifically choose the branch 
-                    # (self.section_synapse_df['branch_idx'] == np.random.randint(0, 6))]  # For concentration level: most branchy basal branch_idx: 4; distr_multi: np.random.randint(0, 6)
-                
-            elif sec_type == 'apical':
-                sec_syn_bg_exc_ordered_df = self.section_synapse_df[
-                    (self.section_synapse_df['section_id_synapse'].isin(self.sec_tuft_idx)) & # apical includes oblique, trunk and tuft
-                    (self.section_synapse_df['type'] == 'A') &
-                    (self.section_synapse_df['cluster_flag'] == -1) &
-                    (self.section_synapse_df['distance_to_tuft'].between(dist_thres_tuft[dis_to_root], dist_thres_tuft[dis_to_root+1]))] # &
-                    # (self.section_synapse_df['section_id_synapse'] == apic_branch_idx_list[dis_to_root])] # specifically choose the branch 
+            # Build DataFrame filter: common conditions + sec_type-specific conditions
+            bg_exc_cond = (self.section_synapse_df['type'] == 'A') & (self.section_synapse_df['cluster_flag'] == -1)
+            sec_specific_cond = (
+                (self.section_synapse_df['region'] == 'basal') & 
+                (self.section_synapse_df['distance_to_soma'].between(dist_thres_basal[dis_to_root], dist_thres_basal[dis_to_root+1]))
+            ) if sec_type == 'basal' else (
+                (self.section_synapse_df['section_id_synapse'].isin(self.sec_tuft_idx)) & 
+                (self.section_synapse_df['distance_to_tuft'].between(dist_thres_tuft[dis_to_root], dist_thres_tuft[dis_to_root+1]))
+            )
+            sec_syn_bg_exc_ordered_df = self.section_synapse_df[bg_exc_cond & sec_specific_cond] 
                 
             index_list = indices[i]
             num_syn_per_clus = len(index_list)  
@@ -518,29 +507,18 @@ class CellWithNetworkx:
         self.num_func_group = num_func_group
         self.inh_delay = inh_delay
 
+        # Determine spat_condition and num_clus_condition based on folder_path
         if 'distr' in folder_path:
-            spat_condition = 'distr'
-            num_clus_condition = 'multi' if 'multiclus' in folder_path else 'single'
-
-            forlder_path_clus = folder_path.replace('distr', 'clus')
-            section_synapse_df_clus = pd.read_csv(os.path.join(forlder_path_clus, 'section_synapse_df.csv'))
+            spat_condition, num_clus_condition = 'distr', 'multi' if 'multiclus' in folder_path else 'single'
+            section_synapse_df_clus = pd.read_csv(os.path.join(folder_path.replace('distr', 'clus'), 'section_synapse_df.csv'))
         elif 'multiclus' in folder_path:
-            spat_condition = 'clus'
-            num_clus_condition = 'multi'
-            folder_path_clus = folder_path.replace('multiclus_3', 'singclus')
-            folder_path_clus = folder_path_clus.replace('/G/results/simulation_multiclus_Oct25/', '/mnt/mimo_1/simu_results_sjc/simulation_singclus_Aug25/')
-
-            # 替换倒数第二个部分为 '1'
-            folder_path_clus = Path(folder_path_clus)
-            parts = list(folder_path_clus.parts)
+            spat_condition, num_clus_condition = 'clus', 'multi'
+            folder_path_clus = folder_path.replace('multiclus_3', 'singclus').replace('/G/results/simulation_multiclus_Oct25/', '/mnt/mimo_1/simu_results_sjc/simulation_singclus_Aug25/')
+            parts = list(Path(folder_path_clus).parts)
             parts[-2] = '1'
-            folder_path_clus = Path(*parts).as_posix()  # 转回字符串
-     
-            section_synapse_df_clus = pd.read_csv(os.path.join(folder_path_clus, 'section_synapse_df.csv'))
+            section_synapse_df_clus = pd.read_csv(os.path.join(Path(*parts).as_posix(), 'section_synapse_df.csv'))
         else:
-            spat_condition = 'clus'
-            num_clus_condition = 'single'
-            section_synapse_df_clus = self.section_synapse_df
+            spat_condition, num_clus_condition, section_synapse_df_clus = 'clus', 'single', self.section_synapse_df
 
         # Cluster stimulus: use clus_spike_gen_seed for stim time generation and preunit order
         clus_spk_rnd = np.random.RandomState(self.clus_spike_gen_seed)
@@ -562,7 +540,9 @@ class CellWithNetworkx:
             perm_list = [pre_unit_id_first_syn] + perm_list
         perm = np.array(perm_list)
                                                     
-        print('spt_unit_array:', spt_unit_array_list[0])
+        # Format spt_unit_array with integer values for display
+        spt_array_formatted = [(unit_id, arr.astype(int)) for unit_id, arr in spt_unit_array_list[0]]
+        print('spt_unit_array:', spt_array_formatted)
         print('perm:', perm)
         print('indices', self.indices)
 
@@ -577,41 +557,26 @@ class CellWithNetworkx:
             iter_step = 4
 
         # Generate preunit list with "dense first, sparse later" pattern
-        # First include all integers from 0 to step (dense)
+        # First include all integers from 0 to step (dense), then include step, step*2, step*3, ..., up to num_preunit (sparse)
         dense_part = list(range(0, iter_step + 1))
-        # Then include step, step*2, step*3, ..., up to num_preunit (sparse)
         sparse_part = list(range(iter_step, self.num_preunit + 1, iter_step))  # for sing-clus (add 1 is to allow the last num_preunit to be included)
-        # Combine and remove duplicates while preserving order
+        
         # self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
-        self.num_activated_preunit_list = [self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        self.num_activated_preunit_list = [0, self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         # Initialize arrays with common shape
         common_shape = (num_time_points, self.num_stim, num_aff_fibers, num_trials)
         dend_shape = (self.num_clusters_sampled, *common_shape)
         
-        # Voltage arrays
-        self.soma_v_array = np.zeros(common_shape)
-        self.apic_v_array = np.zeros(common_shape)
-        self.apic_ica_array = np.zeros(common_shape)
-        self.soma_i_array = np.zeros(common_shape)
-        self.trunk_v_array = np.zeros(common_shape)
-        self.basal_v_array = np.zeros(common_shape)
-        self.tuft_v_array = np.zeros(common_shape)
-        
-        # Background current arrays
-        self.basal_bg_i_nmda_array = np.zeros(common_shape)
-        self.basal_bg_i_ampa_array = np.zeros(common_shape)
-        self.tuft_bg_i_nmda_array = np.zeros(common_shape)
-        self.tuft_bg_i_ampa_array = np.zeros(common_shape)
-        
-        # Dendritic arrays
-        self.dend_v_array = np.zeros(dend_shape)
-        self.dend_i_array = np.zeros(dend_shape)
-        self.dend_nmda_i_array = np.zeros(dend_shape)
-        self.dend_ampa_i_array = np.zeros(dend_shape)
-        self.dend_nmda_g_array = np.zeros(dend_shape)
-        self.dend_ampa_g_array = np.zeros(dend_shape)
+        # Initialize arrays concisely using dictionary and setattr
+        voltage_arrays = ['soma_v', 'apic_v', 'apic_ica', 'soma_i', 'trunk_v', 'basal_v', 'tuft_v']
+        bg_current_arrays = ['basal_bg_i_nmda', 'basal_bg_i_ampa', 'tuft_bg_i_nmda', 'tuft_bg_i_ampa']
+        dend_arrays = ['dend_v', 'dend_i', 'dend_nmda_i', 'dend_ampa_i', 'dend_nmda_g', 'dend_ampa_g']
+        for arr_name in voltage_arrays + bg_current_arrays:
+            setattr(self, f'{arr_name}_array', np.zeros(common_shape))
+        for arr_name in dend_arrays:
+            setattr(self, f'{arr_name}_array', np.zeros(dend_shape))
 
         if self.with_global_rec:
             num_segments_noaxon = len(self.all_segments_noaxon)
@@ -945,6 +910,9 @@ def create_parser():
     parser.add_argument('--bg_exc_channel_type', type=str, default='AMPANMDA',
                         choices=['AMPANMDA', 'AMPA'],
                         help='Background excitatory channel type (default: AMPANMDA)')
+    parser.add_argument('--channel_suffix', type=str, default='singclus',
+                        help='Base channel suffix for simulation folder name (e.g. singclus, singclus_AMPA). '
+                             'With --with_ap / --with_global_rec, _ap / _globrec are appended (default: singclus)')
     
     # Cluster parameters
     parser.add_argument('--cluster_radius', type=float, default=5.0,
@@ -986,14 +954,12 @@ def create_parser():
                         help='Delay of inhibitory inputs in ms (default: 4.0)')
     
     # Other parameters
-    parser.add_argument('--pref_ori_dg', type=float, default=0.0,
-                        help='Preferred orientation in degrees (default: 0.0)')
     parser.add_argument('--num_trials', type=int, default=1,
                         help='Number of trials (default: 1)')
     parser.add_argument('--folder_tag', type=str, default='1',
                         help='Folder tag for output (default: 1)')
-    parser.add_argument('--epoch', type=int, default=1,
-                        help='Epoch number (default: 1)')
+    # parser.add_argument('--epoch', type=int, default=1,
+    #                     help='Epoch number (default: 1)')
     
     # Random seeds - both default to epoch value
     parser.add_argument('--syn_pos_seed', type=int, default=None,
@@ -1020,35 +986,28 @@ def create_parser():
 def build_cell(args):
     """Build and simulate cell with parameters from argparse"""
     
-    NUM_SYN_BASAL_EXC = args.num_syn_basal_exc
-    NUM_SYN_APIC_EXC = args.num_syn_apic_exc
-    NUM_SYN_BASAL_INH = args.num_syn_basal_inh
-    NUM_SYN_APIC_INH = args.num_syn_apic_inh
-    NUM_SYN_SOMA_INH = args.num_syn_soma_inh
-    SIMU_DURATION = args.simu_duration
-    STIM_DURATION = args.stim_duration
-    simu_condition = args.simu_condition
-    spat_condtion = args.spat_condition
-    basal_channel_type = args.basal_channel_type
-    sec_type = args.sec_type
-    distance_to_root = args.distance_to_root
-    num_clusters = args.num_clusters
-    cluster_radius = args.cluster_radius
-    bg_exc_freq = args.bg_exc_freq
-    bg_inh_freq = args.bg_inh_freq
-    input_ratio_basal_apic = args.input_ratio_basal_apic
-    bg_exc_channel_type = args.bg_exc_channel_type
-    initW = args.initW
-    num_func_group = args.num_func_group
-    inh_delay = args.inh_delay
-    num_stim = args.num_stim
-    stim_time = args.stim_time
-    num_conn_per_preunit = args.num_conn_per_preunit
-    num_syn_per_clus = args.num_syn_per_clus
-    pref_ori_dg = args.pref_ori_dg
-    num_trials = args.num_trials
-    folder_tag = args.folder_tag
-    epoch = args.epoch
+    # Extract parameters from args using getattr (more concise than individual assignments)
+    def get_param(name): return getattr(args, name)
+    
+    # Get epoch first for separator, then extract all parameters
+    epoch = get_param('epoch')
+    print('\n' + '='*80)
+    print(f'EPOCH {epoch}')
+    print('='*80 + '\n')
+    
+    # Core parameters
+    NUM_SYN_BASAL_EXC, NUM_SYN_APIC_EXC = get_param('num_syn_basal_exc'), get_param('num_syn_apic_exc')
+    NUM_SYN_BASAL_INH, NUM_SYN_APIC_INH = get_param('num_syn_basal_inh'), get_param('num_syn_apic_inh')
+    NUM_SYN_SOMA_INH, SIMU_DURATION, STIM_DURATION = get_param('num_syn_soma_inh'), get_param('simu_duration'), get_param('stim_duration')
+    simu_condition, spat_condtion = get_param('simu_condition'), get_param('spat_condition')
+    basal_channel_type, sec_type = get_param('basal_channel_type'), get_param('sec_type')
+    distance_to_root, num_clusters, cluster_radius = get_param('distance_to_root'), get_param('num_clusters'), get_param('cluster_radius')
+    bg_exc_freq, bg_inh_freq = get_param('bg_exc_freq'), get_param('bg_inh_freq')
+    input_ratio_basal_apic, bg_exc_channel_type = get_param('input_ratio_basal_apic'), get_param('bg_exc_channel_type')
+    initW, num_func_group, inh_delay = get_param('initW'), get_param('num_func_group'), get_param('inh_delay')
+    num_stim, stim_time = get_param('num_stim'), get_param('stim_time')
+    num_conn_per_preunit, num_syn_per_clus = get_param('num_conn_per_preunit'), get_param('num_syn_per_clus')
+    num_trials, folder_tag = get_param('num_trials'), get_param('folder_tag')
     
     # Random seeds: default to epoch if not set
     # syn_pos_seed: spatial structure (synapse positions, clusters, weights)
@@ -1057,17 +1016,14 @@ def build_cell(args):
     syn_pos_seed = args.syn_pos_seed if args.syn_pos_seed is not None else epoch
     bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
     clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
-    with_ap = args.with_ap
-    with_global_rec = args.with_global_rec
+    with_ap, with_global_rec = args.with_ap, args.with_global_rec
   
     # time_tag = time.strftime("%Y%m%d", time.localtime())
     # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
-    # Create simulation folder name
-    channel_suffix = '_singclus' if basal_channel_type == 'AMPANMDA' else '_singclus_AMPA'
-    if with_ap:
-        channel_suffix += '_ap'
-    if with_global_rec:
-        channel_suffix += '_globrec'
+    # Build channel_suffix: ensure leading underscore, then append conditional suffixes
+    channel_suffix = args.channel_suffix.strip()
+    channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
+    channel_suffix += ''.join(['_ap' if with_ap else '', '_globrec' if with_global_rec else ''])
     simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}'
     
     # Normalize folder tag
@@ -1077,37 +1033,22 @@ def build_cell(args):
 
     simulation_params = {
         'cell model': 'L5PN',
-        'NUM_SYN_BASAL_EXC': NUM_SYN_BASAL_EXC,
-        'NUM_SYN_APIC_EXC': NUM_SYN_APIC_EXC,
-        'NUM_SYN_BASAL_INH': NUM_SYN_BASAL_INH,
-        'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
-        'NUM_SYN_SOMA_INH': NUM_SYN_SOMA_INH,
-        'SIMU DURATION': SIMU_DURATION,
-        'STIM DURATION': STIM_DURATION,
-        'simulation condition': simu_condition,
-        'synaptic spatial condition': spat_condtion,
-        'basal channel type': basal_channel_type,
-        'section type': sec_type,
-        'distance from clusters to root': distance_to_root,
-        'number of clusters': num_clusters,
-        'cluster radius': cluster_radius,
-        'background excitatory frequency': bg_exc_freq,
-        'background inhibitory frequency': bg_inh_freq,
-        'input ratio of basal to apical': input_ratio_basal_apic,
-        'background excitatory channel type': bg_exc_channel_type,
-        'initial weight of AMPANMDA synapses': initW,
-        'number of functional groups': num_func_group,
-        'delay of inhibitory inputs': inh_delay,
-        'number of stimuli': num_stim,
-        'time point of stimulation': stim_time,
-        'number of connection per preunit': num_conn_per_preunit,
-        'number of synapses per cluster': num_syn_per_clus,
-        'number of trials': num_trials,
-        'syn_pos_seed': syn_pos_seed,
-        'bg_spike_gen_seed': bg_spike_gen_seed,
-        'clus_spike_gen_seed': clus_spike_gen_seed,
-        'with_ap': with_ap,
-        'with_global_rec': with_global_rec,
+        'NUM_SYN_BASAL_EXC': NUM_SYN_BASAL_EXC, 'NUM_SYN_APIC_EXC': NUM_SYN_APIC_EXC,
+        'NUM_SYN_BASAL_INH': NUM_SYN_BASAL_INH, 'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
+        'NUM_SYN_SOMA_INH': NUM_SYN_SOMA_INH, 'SIMU DURATION': SIMU_DURATION,
+        'STIM DURATION': STIM_DURATION, 'simulation condition': simu_condition,
+        'synaptic spatial condition': spat_condtion, 'basal channel type': basal_channel_type,
+        'channel_suffix': args.channel_suffix, 'section type': sec_type,
+        'distance from clusters to root': distance_to_root, 'number of clusters': num_clusters,
+        'cluster radius': cluster_radius, 'background excitatory frequency': bg_exc_freq,
+        'background inhibitory frequency': bg_inh_freq, 'input ratio of basal to apical': input_ratio_basal_apic,
+        'background excitatory channel type': bg_exc_channel_type, 'initial weight of AMPANMDA synapses': initW,
+        'number of functional groups': num_func_group, 'delay of inhibitory inputs': inh_delay,
+        'number of stimuli': num_stim, 'time point of stimulation': stim_time,
+        'number of connection per preunit': num_conn_per_preunit, 'number of synapses per cluster': num_syn_per_clus,
+        'number of trials': num_trials, 'syn_pos_seed': syn_pos_seed,
+        'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
+        'with_ap': with_ap, 'with_global_rec': with_global_rec,
     }
 
     if not os.path.exists(folder_path):
@@ -1119,16 +1060,11 @@ def build_cell(args):
 
     cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
                             syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec)
-    cell1.add_synapses(NUM_SYN_BASAL_EXC, 
-                                NUM_SYN_APIC_EXC, 
-                                NUM_SYN_BASAL_INH, 
-                                NUM_SYN_APIC_INH,
-                                NUM_SYN_SOMA_INH)
+    cell1.add_synapses(NUM_SYN_BASAL_EXC, NUM_SYN_APIC_EXC, NUM_SYN_BASAL_INH, NUM_SYN_APIC_INH, NUM_SYN_SOMA_INH)
     
     cell1.assign_clustered_synapses(basal_channel_type, sec_type, distance_to_root, 
                                     num_clusters, cluster_radius, num_stim, stim_time, 
-                                    spat_condtion, num_conn_per_preunit, num_syn_per_clus,
-                                    folder_path) 
+                                    spat_condtion, num_conn_per_preunit, num_syn_per_clus, folder_path) 
 
     cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials)
@@ -1148,17 +1084,26 @@ def run_processes(args_list, epoch):
         process.join()  # Join each batch of processes before moving to the next parameter set
 
 def run_combination(combination_args):
-    """Run combination of parameters"""
-    sec_type, dis_to_root, spat_cond, epoch, base_args = combination_args
+    """
+    Run combination of parameters.
     
-    # Create a copy of base_args (which contains command-line arguments)
-    args = argparse.Namespace(**vars(base_args))
-    # Override with combination-specific values
-    args.sec_type = sec_type
-    args.distance_to_root = dis_to_root
-    args.spat_condition = spat_cond
+    Note: spat_cond (spatial condition) is processed sequentially within this function,
+    not in parallel. This ensures all 'clus' tasks complete before any 'distr' tasks start.
+    This sequential processing is intentional to maintain execution order.
+    """
+    sec_type, dis_to_root, epoch, base_args = combination_args
     
-    run_processes([args], epoch)
+    # Process spatial conditions sequentially: first 'clus', then 'distr'
+    # This ensures all clustered simulations complete before distributed ones begin
+    for spat_cond in ['clus', 'distr']:
+        # Create a copy of base_args (which contains command-line arguments)
+        args = argparse.Namespace(**vars(base_args))
+        # Override with combination-specific values
+        args.sec_type = sec_type
+        args.distance_to_root = dis_to_root
+        args.spat_condition = spat_cond
+        
+        run_processes([args], epoch)
 
 if __name__ == "__main__":
     parser = create_parser()
@@ -1167,12 +1112,12 @@ if __name__ == "__main__":
     # Running for sing-cluster analysis (nonlinearity)
     # Parameter combinations configuration - easy to modify and maintain
     param_config = {
-        'sec_type': ['basal'],           # Section types: ['basal', 'apical']
+        'sec_type': ['basal', 'apical'],           # Section types: ['basal', 'apical']
         'dis_to_root': [1],              # Distance to root: [0, 1, 2]
-        'spat_cond': ['distr'],           # Spatial condition: ['clus', 'distr']
+        # 'spat_cond': ['clus', 'distr'],           # Spatial condition: ['clus', 'distr']
         'batch_config': {
-            'num_batches': 1,            # Number of batches
-            'epochs_per_batch': 1,       # Epochs per batch
+            'num_batches': 10,            # Number of batches
+            'epochs_per_batch': 10,       # Epochs per batch
             'start_epoch': 1             # Starting epoch number
         }
     }
@@ -1184,17 +1129,19 @@ if __name__ == "__main__":
         end_epoch = start_epoch + batch_config['epochs_per_batch']
         
         # Generate all combinations of parameters
+        # Note: spat_cond is NOT included here - it will be processed sequentially 
+        # inside run_combination() to ensure 'clus' completes before 'distr' starts
         combinations = [
-            (sec_type, dis_to_root, spat_cond, epoch, args)
-            for sec_type, dis_to_root, spat_cond in itertools.product(
+            (sec_type, dis_to_root, epoch, args)
+            for sec_type, dis_to_root in itertools.product(
                 param_config['sec_type'],
-                param_config['dis_to_root'],
-                param_config['spat_cond']
+                param_config['dis_to_root']
             )
             for epoch in range(start_epoch, end_epoch)
         ]
         
         # Execute combinations in parallel
+        # Each combination will internally process 'clus' then 'distr' sequentially
         with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
             executor.map(run_combination, combinations)
 
