@@ -30,6 +30,8 @@ sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
 warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "3"))
+
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
                  syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False):
@@ -235,7 +237,7 @@ class CellWithNetworkx:
             with self.lock:
                 self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame([data_to_append], dtype=object)], ignore_index=True)
 
-        with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             list(tqdm(executor.map(generate_synapse, range(num_syn)), total=num_syn))
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type, dis_to_root, 
@@ -1142,7 +1144,7 @@ if __name__ == "__main__":
         
         # Execute combinations in parallel
         # Each combination will internally process 'clus' then 'distr' sequentially
-        with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
             executor.map(run_combination, combinations)
 
 
