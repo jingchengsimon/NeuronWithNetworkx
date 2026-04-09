@@ -10,15 +10,28 @@ import matplotlib.pyplot as plt
 # ---------------------------
 # IO helpers
 # ---------------------------
-def _load_soma_folder(folder: str):
-    soma_path = os.path.join(folder, "soma_v_array.npy")
+def _load_trace_folder(folder: str, anal_loc: str):
+    """
+    anal_loc:
+      - 'basal'  -> soma_v_array.npy
+      - 'apical' -> apic_v_array.npy
+    """
+    if anal_loc == "apical":
+        trace_name = "apic_v_array.npy"
+    else:
+        trace_name = "soma_v_array.npy"  # default: basal and others
+
+    trace_path = os.path.join(folder, trace_name)
     info_path = os.path.join(folder, "simulation_params.json")
-    if (not os.path.exists(soma_path)) or (not os.path.exists(info_path)):
-        return None, None
-    soma = np.load(soma_path)
+
+    if (not os.path.exists(trace_path)) or (not os.path.exists(info_path)):
+        return None, None, trace_name
+
+    trace = np.load(trace_path)
     with open(info_path, "r") as f:
         simu_info = json.load(f)
-    return soma, simu_info
+
+    return trace, simu_info, trace_name
 
 
 def _normalize_soma_shape(soma: np.ndarray):
@@ -95,34 +108,53 @@ def extract_soma_peak_trials(
     window_ms: tuple[float, float] = (-20.0, 100.0),
     dt_seconds: float = 1 / 40000,
     stim_time_key: str = "time point of stimulation",
+    anal_loc: str = "basal",
+    metric: str = "peak",
 ):
     """
-    peak per trial:
-      max_t( soma[t, -1, trial] - soma[t, 0, trial] ) within window
+    Per-trial metric within window:
+      delta[t, trial] = trace[t, -1, trial] - trace[t, 0, trial]
+
+    metric:
+      - "peak": max_t(delta) per trial (current behavior).
+      - "area": integral over time of clip(delta, 0, None), using np.trapz (same as notebook).
+    trace source:
+      - basal  -> soma_v_array
+      - apical -> apic_v_array
     """
-    soma_raw, simu_info = _load_soma_folder(folder)
-    if soma_raw is None:
+    trace_raw, simu_info, trace_name = _load_trace_folder(folder, anal_loc=anal_loc)
+    if trace_raw is None:
         return None
 
-    soma = _normalize_soma_shape(soma_raw)  # (T, A, Trials)
+    trace = _normalize_soma_shape(trace_raw)  # (T, A, Trials)
 
     if stim_time_key not in simu_info:
-        raise KeyError(f"simulation_params.json missing key: '{stim_time_key}'")
+        raise KeyError(f"simulation_params.json missing key: '{stim_time_key}' in {folder}")
     t_ms = float(simu_info[stim_time_key])
 
     spm = _samples_per_ms_from_dt(dt_seconds)
     t_start = int(round((t_ms + window_ms[0]) * spm))
     t_end = int(round((t_ms + window_ms[1]) * spm))
 
-    T = soma.shape[0]
+    T = trace.shape[0]
     t_start = max(0, min(T, t_start))
     t_end = max(0, min(T, t_end))
     if t_end <= t_start:
         return None
 
-    delta = soma[t_start:t_end, -1, :] - soma[t_start:t_end, 0, :]
-    peaks = np.max(delta, axis=0)  # (Trials,)
-    return peaks
+    delta = trace[t_start:t_end, -1, :] - trace[t_start:t_end, 0, :]  # (n_time, n_trials)
+
+    if metric == "peak":
+        values = np.max(delta, axis=0)  # (n_trials,)
+    elif metric == "area":
+        n_samples = t_end - t_start
+        x = np.arange(0, n_samples) * dt_seconds  # time axis in seconds for trapz
+        soma_over_baseline = np.clip(delta, 0, None)  # [t, trials]
+        values = np.trapz(soma_over_baseline, x, axis=0)  # (n_trials,)
+    else:
+        raise ValueError(f"metric must be 'peak' or 'area', got {metric!r}")
+
+    return values
 
 
 def build_peak_dataframe_from_base(
@@ -131,34 +163,29 @@ def build_peak_dataframe_from_base(
     conditions: tuple[str, str] = ("clus", "distr"),
     window_ms: tuple[float, float] = (-20.0, 100.0),
     dt_seconds: float = 1 / 40000,
+    anal_loc: str = "basal",
+    metric: str = "peak",
 ):
-    """
-    For each suffix:
-      exp_dir = {base_root}_{cond}_invivo_{suffix}
-    Then scan exp_dir/*/* for epochs.
-
-    DataFrame columns:
-      epoch, suffix, condition, peak, folder
-    """
     rows = []
     for suffix in suffixes:
         for cond in conditions:
             exp_dir = _exp_dir_from_base(base_clus_invivo_prefix, cond, suffix)
             epoch_folders = _find_epoch_folders_two_level(exp_dir)
             if not epoch_folders:
-                # allow missing condition/suffix combos quietly
                 continue
 
             for epoch_idx, folder in epoch_folders:
-                peaks = extract_soma_peak_trials(
+                values = extract_soma_peak_trials(
                     folder=folder,
                     window_ms=window_ms,
                     dt_seconds=dt_seconds,
+                    anal_loc=anal_loc,
+                    metric=metric,
                 )
-                if peaks is None:
+                if values is None:
                     continue
 
-                for p in np.asarray(peaks).ravel():
+                for p in np.asarray(values).ravel():
                     rows.append(
                         dict(
                             epoch=epoch_idx,
@@ -166,15 +193,14 @@ def build_peak_dataframe_from_base(
                             condition=cond,
                             peak=float(p),
                             folder=folder,
+                            anal_loc=anal_loc,
+                            metric=metric,
                         )
                     )
 
     df = pd.DataFrame(rows)
     if df.empty:
-        raise RuntimeError(
-            "No peaks extracted. Check paths exist:\n"
-            "  {base_root}_{clus/distr}_invivo_{suffix}/<rep>/<epoch>/soma_v_array.npy"
-        )
+        raise RuntimeError("No peaks extracted. Check recordings exist and anal_loc mapping is correct.")
     return df
 
 
@@ -277,13 +303,34 @@ def plot_peak_violins(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    axes[0].set_ylabel("Soma peak (mV)  [max_t(soma[-1]-soma[0])]")
+    # ---- auto label by anal_loc (generic) ----
+    anal_loc = None
+    metric = None
+    if "anal_loc" in df.columns:
+        unique_locs = df["anal_loc"].dropna().unique()
+        if len(unique_locs) == 1:
+            anal_loc = str(unique_locs[0])
+
+    if "metric" in df.columns:
+        unique_metrics = df["metric"].dropna().unique()
+        if len(unique_metrics) == 1:
+            metric = str(unique_metrics[0])
+
+    if anal_loc:
+        axes[0].set_ylabel(f"{anal_loc.capitalize()} {metric}") # (mV)  [max_t({anal_loc}[-1]-{anal_loc}[0])]")
+    else:
+        # fallback for backward compatibility if df has no anal_loc
+        axes[0].set_ylabel(f"{metric.capitalize()}")
+
+
     fig.tight_layout()
     return fig, axes
 
 
 def visualize_soma_peak_from_base(
     base_clus_invivo_prefix: str,
+    anal_loc: str = "basal",
+    metric: str = "peak",
     suffixes: list[str] = ("spktimevar",),
     window_ms: tuple[float, float] = (-20.0, 100.0),
     dt_seconds: float = 1 / 40000,
@@ -297,6 +344,8 @@ def visualize_soma_peak_from_base(
         conditions=conditions,
         window_ms=window_ms,
         dt_seconds=dt_seconds,
+        anal_loc=anal_loc,
+        metric=metric,
     )
     fig, axes = plot_peak_violins(df, conditions=conditions)
 
@@ -315,28 +364,98 @@ if __name__ == "__main__":
 
     # ------- independent naming variables -------
     root_dir = "/G/results/simulation_singclus_supple_Feb26"
-    anal_loc = "basal"          # e.g., basal / tuft / trunk ...
     range_idx = 1               # e.g., 0-2
-    suffixes = ["spktimevar"]   # can extend: ["spktimevar", "bgtimevar", ...]
-
+    suffixes = ["spktimevar", "bgtimevar"]   # can extend: ["spktimevar", "bgtimevar", ...]
     window_ms = (-20, 100)
-
-    # ------- assemble base prefix (ends with underscore) -------
-    # Note: visualize_soma_peak_from_base expects "*_clus_invivo_" prefix to infer base_root
-    # so here we intentionally build the clus-prefix.
-    base_clus_invivo_prefix = (
-        f"{root_dir}/{anal_loc}_range{range_idx}_clus_invivo_"
-    )
-
-    # ------- run for each suffix (will expand to the right if you pass multiple suffixes at once) -------
-    # Option A (recommended): pass all suffixes together -> one figure with multiple columns
-    df, fig, axes = visualize_soma_peak_from_base(
-        base_clus_invivo_prefix=base_clus_invivo_prefix,
-        suffixes=suffixes,
-        window_ms=window_ms,
-        save_path=f"soma_peak_violin_{anal_loc}_range{range_idx}.png",
-    )
-
     
+    for anal_loc in ["basal", "apical"]:
+        for metric in ["peak"]:
+
+            # ------- assemble base prefix (ends with underscore) -------
+            # Note: visualize_soma_peak_from_base expects "*_clus_invivo_" prefix to infer base_root
+            # so here we intentionally build the clus-prefix.
+            base_clus_invivo_prefix = (
+                f"{root_dir}/{anal_loc}_range{range_idx}_clus_invivo_"
+            )
+
+            # ------- run for each suffix (will expand to the right if you pass multiple suffixes at once) -------
+            # Option A (recommended): pass all suffixes together -> one figure with multiple columns
+            df, fig, axes = visualize_soma_peak_from_base(
+                base_clus_invivo_prefix=base_clus_invivo_prefix,
+                anal_loc=anal_loc,
+                metric=metric,
+                suffixes=suffixes,
+                window_ms=window_ms,
+                save_path=f"{anal_loc}_range{range_idx}_{metric}_violin_median.png",
+            )
+
+            # ------- print epoch index where both conditions are closest to their medians -------
+            # df columns: ["epoch", "suffix", "condition", "peak", "folder", "anal_loc", "metric"]
+            # 这里的 "peak" 列在 metric="area" 时也存的是 area 数值
+            value_col = "peak"
+            needed_cols = ["epoch", "suffix", "condition", value_col]
+            if all(col in df.columns for col in needed_cols):
+                # 1) 每个 (suffix, condition) 的全局 median（跨 epoch + trial）
+                overall_median_by_cond = (
+                    df.groupby(["suffix", "condition"])[value_col]
+                    .median()
+                    .rename("overall_median")
+                    .reset_index()
+                )
+
+                # 2) 每个 (suffix, condition, epoch) 的 epoch 内 median（跨 trial）
+                epoch_stats = (
+                    df.groupby(["suffix", "condition", "epoch"])[value_col]
+                    .median()
+                    .rename("epoch_median")
+                    .reset_index()
+                )
+
+                # 3) 合并，按 (suffix, epoch, condition) 计算 |epoch_median - overall_median|
+                merged = epoch_stats.merge(
+                    overall_median_by_cond,
+                    on=["suffix", "condition"],
+                    how="inner",
+                )
+                merged["abs_diff"] = (merged["epoch_median"] - merged["overall_median"]).abs()
+
+                # 4) 对每个 suffix，在同一 epoch 上同时考虑 clus/distr：
+                #    distance(epoch) = |clus_epoch_median - clus_overall_median|
+                #                     + |distr_epoch_median - distr_overall_median|
+                for suf, sub_suf in merged.groupby("suffix"):
+                    # 只保留 clus / distr 两个条件
+                    sub_suf = sub_suf[sub_suf["condition"].isin(["clus", "distr"])]
+                    if sub_suf.empty:
+                        continue
+
+                    epoch_score = (
+                        sub_suf.groupby("epoch")["abs_diff"]
+                        .sum()
+                        .rename("total_abs_diff")
+                        .reset_index()
+                    )
+
+                    # 找到 total_abs_diff 最小的 epoch
+                    best_idx = epoch_score["total_abs_diff"].idxmin()
+                    best_row = epoch_score.loc[best_idx]
+                    best_epoch = int(best_row["epoch"])
+                    best_score = float(best_row["total_abs_diff"])
+
+                    # 顺便打印该 epoch 下各 condition 的 epoch_median 以及各自的 overall_median
+                    detail = merged[(merged["suffix"] == suf) & (merged["epoch"] == best_epoch)]
+
+                    print(f"[{anal_loc}] metric={metric}, suffix={suf} -> best_epoch={best_epoch}, "
+                          f"sum_abs_diff(clus+distr)={best_score:.4f}")
+                    for cond in ["clus", "distr"]:
+                        row_c = detail[detail["condition"] == cond]
+                        if row_c.empty:
+                            continue
+                        em = float(row_c["epoch_median"].iloc[0])
+                        om = float(row_c["overall_median"].iloc[0])
+                        diff = float(row_c["abs_diff"].iloc[0])
+                        print(
+                            f"    condition={cond}: epoch_median={em:.4f}, "
+                            f"overall_median={om:.4f}, |diff|={diff:.4f}"
+                        )
 
 

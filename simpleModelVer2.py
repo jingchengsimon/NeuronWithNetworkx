@@ -30,7 +30,7 @@ sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
 warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "3"))
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
@@ -1019,9 +1019,7 @@ def build_cell(args):
     bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
     clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
     with_ap, with_global_rec = args.with_ap, args.with_global_rec
-  
-    # time_tag = time.strftime("%Y%m%d", time.localtime())
-    # folder_path = '/G/results/simulation/' + time_tag + '/' + folder_tag          
+           
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
     channel_suffix = args.channel_suffix.strip()
     channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
@@ -1030,7 +1028,7 @@ def build_cell(args):
     
     # Normalize folder tag
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
-    folder_path = f'/G/results/simulation_singclus_supple_Feb26/{simu_folder}/{folder_tag}/{epoch}'
+    folder_path = f'/G/results/simulation_singclus_supple_Apr26/{simu_folder}/{folder_tag}/{epoch}'
     # folder_path = Path('/G/results/simulation_multiclus_Oct25') / simu_folder / folder_tag / str(epoch)
 
     simulation_params = {
@@ -1097,7 +1095,7 @@ def run_combination(combination_args):
     
     # Process spatial conditions sequentially: first 'clus', then 'distr'
     # This ensures all clustered simulations complete before distributed ones begin
-    for spat_cond in ['clus', 'distr']:
+    for spat_cond in ['clus']: #, 'distr']:
         # Create a copy of base_args (which contains command-line arguments)
         args = argparse.Namespace(**vars(base_args))
         # Override with combination-specific values
@@ -1114,13 +1112,13 @@ if __name__ == "__main__":
     # Running for sing-cluster analysis (nonlinearity)
     # Parameter combinations configuration - easy to modify and maintain
     param_config = {
-        'sec_type': ['basal', 'apical'],           # Section types: ['basal', 'apical']
-        'dis_to_root': [1],              # Distance to root: [0, 1, 2]
-        # 'spat_cond': ['clus', 'distr'],           # Spatial condition: ['clus', 'distr']
+        'sec_type': ['basal'],           # Section types: ['basal', 'apical']
+        'dis_to_root': [0],              # Distance to root: [0, 1, 2]
+        # 'spat_cond': ['clus', 'distr'],  # Spatial condition: ['clus', 'distr']
         'batch_config': {
-            'num_batches': 10,            # Number of batches
-            'epochs_per_batch': 10,       # Epochs per batch
-            'start_epoch': 1             # Starting epoch number
+            'num_batches': 1,            # Number of batches
+            'epochs_per_batch': 1,      # Epochs per batch
+            'start_epoch': 1            # Starting epoch number
         }
     }
     
