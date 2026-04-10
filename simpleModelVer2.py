@@ -20,7 +20,10 @@ from collections import defaultdict
 
 from utils.graph_utils import create_directed_graph, set_graph_order
 from utils.add_inputs_utils import add_background_exc_inputs, add_background_inh_inputs, add_clustered_inputs
+from utils.replay_background_spikes import resolve_replay_section_synapse_csv, load_replay_spike_maps
+from utils.replay_layout_from_csv import populate_section_synapse_df_from_csv, replay_assign_cluster_metadata
 from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_soma, recur_dist_to_root
+from utils.nmda_detection_utils import batch_nmda_spike_rates_from_seg_v_array, DEFAULT_V_THRESH_MV, DEFAULT_MIN_DURATION_MS
 from utils.generate_stim_utils import generate_indices, generate_vecstim
 
 from utils.visualize_utils import visualize_synapses
@@ -34,7 +37,8 @@ MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                 syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False):
+                 syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False,
+                 replay_bg_csv=None):
         """
         Initialize cell with networkx structure.
         
@@ -52,7 +56,12 @@ class CellWithNetworkx:
                           generate_vecstim, preunit permutation). If None, falls back to bg_spike_gen_seed.
             with_ap: If True, use L5PCbiophys3withNaCa.hoc (with AP and Ca), 
                     else use L5PCbiophys3.hoc (default: False)
-            with_global_rec: If True, record seg_ina and seg_inmda for all segments and save to npy (default: False)
+            with_global_rec: If True, record v/ina/iNMDA per segment (electrode), save seg_* arrays,
+                and after the run compute per-segment NMDA spike rate (Hz) into segment_nmda_spike_rate.npz (default: False)
+            replay_bg_csv: If set, path to reference run (simulation_params.json, directory, or section_synapse_df.csv).
+                Synapse locations and cluster assignment are rebuilt from that section_synapse_df.csv (see utils/replay_layout_from_csv.py);
+                background exc/inh spike trains use the same file via utils/replay_background_spikes.py (not RNG).
+                Pass none to use random placement and generated background spikes.
         """
         h.load_file("import3d.hoc")
 
@@ -86,6 +95,7 @@ class CellWithNetworkx:
         # Random seed for synapse positioning (spatial structure)
         # Controls: synapse locations, cluster positions, synapse weights
         self.syn_pos_seed = syn_pos_seed
+        self.replay_bg_csv = replay_bg_csv  # resolved path to section_synapse_df.csv or None
         self.rnd = np.random.default_rng(syn_pos_seed)  # For synapse position selection
         random.seed(syn_pos_seed)  # For Python random.choices in add_single_synapse
 
@@ -190,6 +200,18 @@ class CellWithNetworkx:
         self.num_syn_apic_inh = num_syn_apic_inh
         self.num_syn_soma_inh = num_syn_soma_inh
 
+        if self.replay_bg_csv:
+            populate_section_synapse_df_from_csv(
+                self,
+                self.replay_bg_csv,
+                num_syn_basal_exc,
+                num_syn_apic_exc,
+                num_syn_basal_inh,
+                num_syn_apic_inh,
+                num_syn_soma_inh,
+            )
+            return
+
         # add excitatory synapses
         self.add_single_synapse(num_syn_basal_exc, 'basal', 'exc')
         self.add_single_synapse(num_syn_apic_exc, 'apical', 'exc')
@@ -246,6 +268,23 @@ class CellWithNetworkx:
                                   folder_path):
         
         # self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
+
+        if self.replay_bg_csv:
+            replay_assign_cluster_metadata(
+                self,
+                folder_path,
+                basal_channel_type,
+                sec_type,
+                dis_to_root,
+                num_clusters,
+                cluster_radius,
+                num_stim,
+                stim_time,
+                spat_condition,
+                num_conn_per_preunit,
+                num_syn_per_clus,
+            )
+            return
         
         # Extract distances
         basal_distance = self.section_synapse_df[
@@ -501,6 +540,80 @@ class CellWithNetworkx:
         
             # print('next')
                 
+    def _collect_segment_electrode_metadata(self):
+        """
+        Per-segment metadata in the same order as all_segments_noaxon / seg_v_array axis 0.
+        region: 'soma', 'basal' (dend), or 'apical' (apic); distance_to_tuft is -1 if not on tuft subtree.
+        """
+        n = len(self.all_segments_noaxon)
+        segment_index = np.arange(n, dtype=np.int32)
+        distance_to_soma = np.zeros(n, dtype=np.float64)
+        distance_to_tuft = np.full(n, -1.0, dtype=np.float64)
+        region = np.empty(n, dtype=object)
+
+        sec_to_sid = {}
+        for sid, segs in enumerate(self.all_sections):
+            if len(segs):
+                sec_to_sid[id(segs[0].sec)] = sid
+
+        type_to_region = {'dend': 'basal', 'apic': 'apical', 'soma': 'soma'}
+
+        for i, seg in enumerate(self.all_segments_noaxon):
+            sid = sec_to_sid.get(id(seg.sec))
+            if sid is None:
+                raise ValueError('segment section not found in all_sections')
+            st = self.section_df.iloc[sid]['section_type']
+            region[i] = type_to_region.get(st, str(st))
+            distance_to_soma[i] = recur_dist_to_soma(seg.sec, seg.x)
+            if sid in self.sec_tuft_idx:
+                distance_to_tuft[i] = recur_dist_to_root(seg.sec, seg.x, self.root_tuft_sec)
+
+        return {
+            'segment_index': segment_index,
+            'distance_to_soma': distance_to_soma,
+            'distance_to_tuft': distance_to_tuft,
+            'region': region,
+        }
+
+    def _save_segment_nmda_spike_rate_npz(self, folder_path):
+        """
+        After simulation, compute NMDA spike rate (Hz) per segment-electrode from seg_v_array
+        and save metadata + rates for downstream visualization.
+        """
+        if self.seg_v_array is None:
+            return
+        meta = self._collect_segment_electrode_metadata()
+        n_seg, n_t, n_stim, n_aff, n_trials = self.seg_v_array.shape
+        if n_t < 2:
+            return
+        dt_s = (self.SIMU_DURATION / 1000.0) / (n_t - 1)
+
+        rates = batch_nmda_spike_rates_from_seg_v_array(
+            self.seg_v_array,
+            dt_s,
+            self.SIMU_DURATION,
+            v_thresh_mV=DEFAULT_V_THRESH_MV,
+            min_duration_ms=DEFAULT_MIN_DURATION_MS,
+        )
+
+        out_path = os.path.join(folder_path, 'segment_nmda_spike_rate.npz')
+        np.savez_compressed(
+            out_path,
+            segment_index=meta['segment_index'],
+            distance_to_soma=meta['distance_to_soma'],
+            distance_to_tuft=meta['distance_to_tuft'],
+            region=meta['region'],
+            nmda_spike_rate_hz=rates,
+            num_stim=np.int32(n_stim),
+            num_aff_fibers=np.int32(n_aff),
+            num_trials=np.int32(n_trials),
+            simu_duration_ms=np.float64(self.SIMU_DURATION),
+            dt_s=np.float64(dt_s),
+            v_thresh_mV=np.float64(DEFAULT_V_THRESH_MV),
+            min_duration_ms=np.float64(DEFAULT_MIN_DURATION_MS),
+        )
+        print(f'Saved segment NMDA spike rates: {out_path}')
+
     def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
@@ -521,6 +634,11 @@ class CellWithNetworkx:
             section_synapse_df_clus = pd.read_csv(os.path.join(Path(*parts).as_posix(), 'section_synapse_df.csv'))
         else:
             spat_condition, num_clus_condition, section_synapse_df_clus = 'clus', 'single', self.section_synapse_df
+
+        replay_exc_map = None
+        replay_inh_map = None
+        if self.replay_bg_csv:
+            replay_exc_map, replay_inh_map = load_replay_spike_maps(self.replay_bg_csv)
 
         # Cluster stimulus: use clus_spike_gen_seed for stim time generation and preunit order
         clus_spk_rnd = np.random.RandomState(self.clus_spike_gen_seed)
@@ -590,7 +708,8 @@ class CellWithNetworkx:
         if simu_condition == 'invivo':
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
-                                    self.syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus)
+                                    self.syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+                                    replay_exc_by_key=replay_exc_map)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
 
@@ -625,7 +744,8 @@ class CellWithNetworkx:
                         num_activated_preunit_idx = self.num_activated_preunit_list.index(num_activated_preunit)
                         add_background_inh_inputs(self.section_synapse_df, self.syn_param_inh, self.SIMU_DURATION, self.FREQ_INH,  
                                                 self.inh_delay, self.bg_spike_gen_seed, spat_condition, num_clus_condition,
-                                                section_synapse_df_clus, num_activated_preunit_idx)
+                                                section_synapse_df_clus, num_activated_preunit_idx,
+                                                replay_inh_by_key=replay_inh_map)
                 
                 for num_trial in range(num_trials):
                     num_aff_idx = self.num_activated_preunit_list.index(num_activated_preunit)
@@ -654,6 +774,9 @@ class CellWithNetworkx:
         for name, array in arrays_to_save.items():
             np.save(os.path.join(folder_path, f'{name}.npy'), array)
 
+        if self.with_global_rec and self.seg_v_array is not None:
+            self._save_segment_nmda_spike_rate_npz(folder_path)
+
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
         # visualize_synapses(self.section_synapse_df, '/G/results/visualization_simulation_singclus')
         
@@ -664,7 +787,8 @@ class CellWithNetworkx:
         apic_ica = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_ica)
 
         trunk_v = h.Vector().record(self.complex_cell.apic[3](0)._ref_v)
-        basal_v = h.Vector().record(self.complex_cell.dend[71-1](0.5)._ref_v) # the 71th dendrite (tip), L: 178.7, order: 3, distance to root: 192.8
+        # basal_v = h.Vector().record(self.complex_cell.dend[71-1](0.5)._ref_v) # the 71th dendrite (tip), L: 178.7, order: 3, distance to root: 192.8
+        basal_v = h.Vector().record(self.complex_cell.apic[71-1](0.8)._ref_v)
         tuft_v = h.Vector().record(self.complex_cell.apic[152-85](0.5)._ref_v) # the 152th dendrite (tip), L: 192.8, order: 3, distance to root: 565.0
 
         # EPSC record (VClamp)
@@ -972,6 +1096,14 @@ def create_parser():
     parser.add_argument('--clus_spike_gen_seed', type=int, default=None,
                         help='Random seed for cluster stimulus spike generation (stim times in generate_vecstim, '
                              'preunit permutation). If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) (default: None)')
+    parser.add_argument(
+        '--replay_bg_csv',
+        type=str,
+        default='/G/results/simulation_singclus_Oct25/basal_range0_clus_invivo_REAL/1/8/simulation_params.json',
+        help='Replay synapse layout + cluster metadata + background exc/inh spikes from reference '
+             'section_synapse_df.csv next to this path (simulation_params.json, run directory, or .csv). '
+             'Spikes matched by syn identity. Pass none for random placement and generated background.',
+    )
     
     # Biophysics model selection
     # Default is False (use L5PCbiophys3.hoc without AP and Ca)
@@ -1019,6 +1151,7 @@ def build_cell(args):
     bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
     clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
     with_ap, with_global_rec = args.with_ap, args.with_global_rec
+    replay_bg_csv = resolve_replay_section_synapse_csv(getattr(args, 'replay_bg_csv', None))
            
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
     channel_suffix = args.channel_suffix.strip()
@@ -1049,6 +1182,8 @@ def build_cell(args):
         'number of trials': num_trials, 'syn_pos_seed': syn_pos_seed,
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
         'with_ap': with_ap, 'with_global_rec': with_global_rec,
+        'replay_bg_csv': replay_bg_csv,
+        'segment_nmda_spike_rate_npz': 'segment_nmda_spike_rate.npz' if with_global_rec else None,
     }
 
     if not os.path.exists(folder_path):
@@ -1059,7 +1194,8 @@ def build_cell(args):
         json.dump(simulation_params, json_file, indent=4)
 
     cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                            syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec)
+                            syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec,
+                            replay_bg_csv=replay_bg_csv)
     cell1.add_synapses(NUM_SYN_BASAL_EXC, NUM_SYN_APIC_EXC, NUM_SYN_BASAL_INH, NUM_SYN_APIC_INH, NUM_SYN_SOMA_INH)
     
     cell1.assign_clustered_synapses(basal_channel_type, sec_type, distance_to_root, 

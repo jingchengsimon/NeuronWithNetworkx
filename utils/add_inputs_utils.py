@@ -8,10 +8,19 @@ import json
 import ast
 from utils.synapses_models import AMPANMDA
 from utils.generate_pink_noise import make_noise
+from utils.replay_background_spikes import row_syn_key
 
 def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
-                              synapse_pos_seed, spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus):
+                              synapse_pos_seed, spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+                              replay_exc_by_key=None):
+
+    if replay_exc_by_key is not None:
+        return _add_background_exc_inputs_replay(
+            section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
+            synapse_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+            replay_exc_by_key,
+        )
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
@@ -123,6 +132,89 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         # executor.map(process_section, range(num_syn_bg_exc))
 
     return section_synapse_df
+
+
+def _add_background_exc_inputs_replay(
+    section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
+    synapse_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+    replay_exc_by_key,
+):
+    """Use pre-recorded exc background spikes; synapse weights unchanged from non-replay path."""
+    sec_syn_bg_exc_df = section_synapse_df[section_synapse_df["type"].isin(["A"])]
+    num_syn_bg_exc = len(sec_syn_bg_exc_df)
+    sec_syn_bg_exc_df_clus = section_synapse_df_clus[section_synapse_df_clus["type"].isin(["A"])]
+
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
+    sigma = 1
+    mu = np.log(initW) - 0.5 * sigma**2
+    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
+    initW_distr_array = loc_rnd.choice(syn_w_distr, size=num_syn_bg_exc, replace=True)
+    e_syn, tau1, tau2 = syn_param_exc
+
+    def process_section(i):
+        section = sec_syn_bg_exc_df.iloc[i]
+        section_clus = sec_syn_bg_exc_df_clus.iloc[i]
+        key = row_syn_key(section)
+        if key not in replay_exc_by_key:
+            raise KeyError(
+                f"replay_bg: no exc spike for syn key {key}. "
+                "Ensure syn_pos_seed matches reference so synapse identities align."
+            )
+        spike_train_bg = np.asarray(replay_exc_by_key[key], dtype=float)
+
+        if section["synapse"] is None:
+            if bg_exc_channel_type == "Exp2Syn":
+                synapse = h.Exp2Syn(sec_syn_bg_exc_df.iloc[i]["segment_synapse"])
+                synapse.e = e_syn
+                synapse.tau1 = tau1
+                synapse.tau2 = tau2
+                initW_distr = initW
+            else:
+                syn_params = json.load(open("./modelFile/AMPANMDA.json", "r"))
+                if spat_condition == "clus" and num_clus_condition == "single":
+                    sw = section.get("syn_w")
+                    if sw is not None and not (isinstance(sw, float) and np.isnan(sw)):
+                        initW_distr = float(sw) / 1000.0
+                    else:
+                        initW_distr = initW_distr_array[i]
+                else:
+                    initW_distr = section_clus["syn_w"] / 1000
+                syn_params["initW"] = initW_distr
+                synapse = AMPANMDA(
+                    syn_params, section["loc"], section["section_synapse"], bg_exc_channel_type
+                )
+        else:
+            synapse = section["synapse"]
+
+        netstim = h.VecStim()
+        netstim.play(h.Vector(spike_train_bg))
+
+        if section["netcon"] is not None:
+            section["netcon"].weight[0] = 0
+
+        netcon = h.NetCon(netstim, synapse)
+        netcon.delay = 0
+        netcon.weight[0] = 1
+
+        if section["synapse"] is None:
+            section_synapse_df.at[section.name, "synapse"] = synapse
+            section_synapse_df.at[section.name, "syn_w"] = 1000 * initW_distr
+        section_synapse_df.at[section.name, "netstim"] = netstim
+        section_synapse_df.at[section.name, "spike_train_bg"].append(list(spike_train_bg))
+        section_synapse_df.at[section.name, "netcon"] = netcon
+
+    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        list(
+            tqdm(
+                executor.map(process_section, range(num_syn_bg_exc)),
+                total=num_syn_bg_exc,
+                desc="replay_bg: exc VecStim",
+                unit="syn",
+            )
+        )
+
+    return section_synapse_df
+
 
 # Match segments with function groups of pink noise
 def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
@@ -244,8 +336,15 @@ def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FRE
 
 def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, 
                               inh_delay, spike_gen_seed, spat_condition, num_clus_condition,
-                              section_synapse_df_clus, num_activated_preunit_idx):  
+                              section_synapse_df_clus, num_activated_preunit_idx,
+                              replay_inh_by_key=None):  
     
+    if replay_inh_by_key is not None:
+        return _add_background_inh_inputs_replay(
+            section_synapse_df, syn_param_inh, inh_delay,
+            replay_inh_by_key,
+        )
+
     spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
 
     def convert_counts_to_spike_trains(spike_counts_inh, dropout_p=0.5):
@@ -380,6 +479,59 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
         executor.map(process_section, range(num_syn_bg_inh))
 
     return section_synapse_df
+
+
+def _add_background_inh_inputs_replay(section_synapse_df, syn_param_inh, inh_delay, replay_inh_by_key):
+    """Use pre-recorded inh background spikes (no Poisson / no coupling to exc)."""
+    e_syn, tau1, tau2, syn_weight = syn_param_inh
+    sec_syn_bg_inh_df = section_synapse_df[section_synapse_df["type"] == "B"]
+    num_syn_bg_inh = len(sec_syn_bg_inh_df)
+
+    def process_section(i):
+        section = sec_syn_bg_inh_df.iloc[i]
+        key = row_syn_key(section)
+        if key not in replay_inh_by_key:
+            raise KeyError(
+                f"replay_bg: no inh spike for syn key {key}. "
+                "Ensure syn_pos_seed matches reference so synapse identities align."
+            )
+        spike_train_bg = np.asarray(replay_inh_by_key[key], dtype=float)
+
+        if section["synapse"] is None:
+            synapse = h.Exp2Syn(sec_syn_bg_inh_df.iloc[i]["segment_synapse"])
+            synapse.e, synapse.tau1, synapse.tau2 = e_syn, tau1, tau2
+        else:
+            synapse = section["synapse"]
+
+        netstim = h.VecStim()
+        netstim.play(h.Vector(spike_train_bg))
+
+        if section["netcon"] is not None:
+            section["netcon"].weight[0] = 0
+
+        netcon = h.NetCon(netstim, synapse)
+        netcon.delay = inh_delay
+        netcon.weight[0] = syn_weight
+
+        if section["synapse"] is None:
+            section_synapse_df.at[section.name, "synapse"] = synapse
+            section_synapse_df.at[section.name, "syn_w"] = 1000 * syn_weight
+        section_synapse_df.at[section.name, "netstim"] = netstim
+        section_synapse_df.at[section.name, "spike_train_bg"] = [list(spike_train_bg)]
+        section_synapse_df.at[section.name, "netcon"] = netcon
+
+    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        list(
+            tqdm(
+                executor.map(process_section, range(num_syn_bg_inh)),
+                total=num_syn_bg_inh,
+                desc="replay_bg: inh VecStim",
+                unit="syn",
+            )
+        )
+
+    return section_synapse_df
+
 
 def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, initW, 
                          spt_unit_array, synapse_pos_seed, num_preunit):  

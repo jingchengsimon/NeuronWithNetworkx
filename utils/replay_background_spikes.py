@@ -13,8 +13,9 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
-SynKey = Tuple[int, float, str, str, int]
+SynKey = Tuple[int, float, str, str, int, int]
 
 
 def resolve_replay_section_synapse_csv(replay_arg: Optional[str]) -> Optional[str]:
@@ -31,20 +32,22 @@ def resolve_replay_section_synapse_csv(replay_arg: Optional[str]) -> Optional[st
         return os.path.join(os.path.dirname(path), "section_synapse_df.csv")
     if path.lower().endswith(".csv"):
         return path
-    # treat as directory without trailing slash
-    if os.path.isdir(os.path.dirname(path) or "."):
-        pass
-    return os.path.join(path, "section_synapse_df.csv") if os.path.isdir(path) else path
+    return path
 
 
 def row_syn_key(row: pd.Series) -> SynKey:
     loc = float(row["loc"])
+    if "branch_idx" in row.index and pd.notna(row["branch_idx"]):
+        bid = int(row["branch_idx"])
+    else:
+        bid = -1
     return (
         int(row["section_id_synapse"]),
         round(loc, 12),
         str(row["type"]),
         str(row["region"]),
         int(row["cluster_flag"]),
+        bid,
     )
 
 
@@ -73,7 +76,15 @@ def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dic
         raise FileNotFoundError(f"replay_bg: section_synapse_df not found: {csv_path}")
 
     ref = pd.read_csv(csv_path)
-    need = {"section_id_synapse", "loc", "type", "region", "cluster_flag", "spike_train_bg"}
+    need = {
+        "section_id_synapse",
+        "loc",
+        "type",
+        "region",
+        "cluster_flag",
+        "branch_idx",
+        "spike_train_bg",
+    }
     missing = need - set(ref.columns)
     if missing:
         raise ValueError(f"replay_bg: reference CSV missing columns: {sorted(missing)}")
@@ -83,7 +94,13 @@ def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dic
     dup_exc: list[SynKey] = []
     dup_inh: list[SynKey] = []
 
-    for _, row in ref.iterrows():
+    n_rows = len(ref)
+    for _, row in tqdm(
+        ref.iterrows(),
+        total=n_rows,
+        desc="replay_bg: load spike maps",
+        unit="row",
+    ):
         key = row_syn_key(row)
         spikes = _parse_spike_train_bg_cell(row["spike_train_bg"])
         typ = str(row["type"])
