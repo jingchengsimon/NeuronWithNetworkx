@@ -20,7 +20,11 @@ from collections import defaultdict
 
 from utils.graph_utils import create_directed_graph, set_graph_order
 from utils.add_inputs_utils import add_background_exc_inputs, add_background_inh_inputs, add_clustered_inputs
-from utils.replay_background_spikes import resolve_replay_section_synapse_csv, load_replay_spike_maps
+from utils.replay_background_spikes import (
+    resolve_replay_section_synapse_csv,
+    load_replay_csv_and_maps,
+    load_replay_spike_maps,
+)
 from utils.replay_layout_from_csv import populate_section_synapse_df_from_csv, replay_assign_cluster_metadata
 from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_soma, recur_dist_to_root
 from utils.nmda_detection_utils import batch_nmda_spike_rates_from_seg_v_array, DEFAULT_V_THRESH_MV, DEFAULT_MIN_DURATION_MS
@@ -58,10 +62,11 @@ class CellWithNetworkx:
                     else use L5PCbiophys3.hoc (default: False)
             with_global_rec: If True, record v/ina/iNMDA per segment (electrode), save seg_* arrays,
                 and after the run compute per-segment NMDA spike rate (Hz) into segment_nmda_spike_rate.npz (default: False)
-            replay_bg_csv: If set, path to reference run (simulation_params.json, directory, or section_synapse_df.csv).
-                Synapse locations and cluster assignment are rebuilt from that section_synapse_df.csv (see utils/replay_layout_from_csv.py);
-                background exc/inh spike trains use the same file via utils/replay_background_spikes.py (not RNG).
-                Pass none to use random placement and generated background spikes.
+            replay_bg_csv: If set (typically when CLI use_replay_bg is True), path to reference
+                section_synapse_df.csv or a run directory that contains it.
+                Synapse locations and cluster assignment are rebuilt from that CSV
+                (see utils/replay_layout_from_csv.py); background exc/inh spike trains use the same file
+                via utils/replay_background_spikes.py (not RNG). None runs the normal random pipeline.
         """
         h.load_file("import3d.hoc")
 
@@ -96,6 +101,8 @@ class CellWithNetworkx:
         # Controls: synapse locations, cluster positions, synapse weights
         self.syn_pos_seed = syn_pos_seed
         self.replay_bg_csv = replay_bg_csv  # resolved path to section_synapse_df.csv or None
+        self._replay_exc_map = None # filled in add_synapses when replay; avoids second CSV read in add_inputs
+        self._replay_inh_map = None
         self.rnd = np.random.default_rng(syn_pos_seed)  # For synapse position selection
         random.seed(syn_pos_seed)  # For Python random.choices in add_single_synapse
 
@@ -201,14 +208,15 @@ class CellWithNetworkx:
         self.num_syn_soma_inh = num_syn_soma_inh
 
         if self.replay_bg_csv:
+            ref_df, self._replay_exc_map, self._replay_inh_map = load_replay_csv_and_maps(self.replay_bg_csv)
             populate_section_synapse_df_from_csv(
                 self,
-                self.replay_bg_csv,
                 num_syn_basal_exc,
                 num_syn_apic_exc,
                 num_syn_basal_inh,
                 num_syn_apic_inh,
                 num_syn_soma_inh,
+                ref_df=ref_df,
             )
             return
 
@@ -614,13 +622,17 @@ class CellWithNetworkx:
         )
         print(f'Saved segment NMDA spike rates: {out_path}')
 
-    def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials):
+    def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type,
+                   initW, num_func_group, inh_delay, num_trials,
+                   use_fixedW=False, fixedW=0.0004):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
         self.bg_exc_channel_type = bg_exc_channel_type
         self.initW = initW
         self.num_func_group = num_func_group
         self.inh_delay = inh_delay
+        self.use_fixedW = use_fixedW
+        self.fixedW = fixedW
 
         # Determine spat_condition and num_clus_condition based on folder_path
         if 'distr' in folder_path:
@@ -638,7 +650,10 @@ class CellWithNetworkx:
         replay_exc_map = None
         replay_inh_map = None
         if self.replay_bg_csv:
-            replay_exc_map, replay_inh_map = load_replay_spike_maps(self.replay_bg_csv)
+            if self._replay_exc_map is not None:
+                replay_exc_map, replay_inh_map = self._replay_exc_map, self._replay_inh_map
+            else:
+                replay_exc_map, replay_inh_map = load_replay_spike_maps(self.replay_bg_csv)
 
         # Cluster stimulus: use clus_spike_gen_seed for stim time generation and preunit order
         clus_spk_rnd = np.random.RandomState(self.clus_spike_gen_seed)
@@ -674,7 +689,7 @@ class CellWithNetworkx:
         if 'expected' in folder_path:
             iter_step = 1
         else:
-            iter_step = 4
+            iter_step = 2
 
         # Generate preunit list with "dense first, sparse later" pattern
         # First include all integers from 0 to step (dense), then include step, step*2, step*3, ..., up to num_preunit (sparse)
@@ -682,7 +697,8 @@ class CellWithNetworkx:
         sparse_part = list(range(iter_step, self.num_preunit + 1, iter_step))  # for sing-clus (add 1 is to allow the last num_preunit to be included)
         
         # self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
-        self.num_activated_preunit_list = [0, self.num_preunit] #[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] # [0, 1, 3, 6, 12, 24, 48, 72] # [0, 3, 6, 9, 12, 18, 24] #[self.num_preunit] # for multi-clus
+        # self.num_activated_preunit_list = [0, self.num_preunit] 
+        self.num_activated_preunit_list = list(range(0, self.num_preunit + 1, iter_step))
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         # Initialize arrays with common shape
@@ -709,7 +725,8 @@ class CellWithNetworkx:
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
                                     self.syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-                                    replay_exc_by_key=replay_exc_map)
+                                    replay_exc_by_key=replay_exc_map,
+                                    use_fixedW=self.use_fixedW, fixedW=self.fixedW)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
 
@@ -735,7 +752,8 @@ class CellWithNetworkx:
                         spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit][-1]]
                         
                     add_clustered_inputs(self.section_synapse_df, self.num_clusters, self.basal_channel_type, 
-                                         self.initW, spt_unit_array_truncated, self.syn_pos_seed, self.num_preunit)
+                                         self.initW, spt_unit_array_truncated, self.syn_pos_seed, self.num_preunit,
+                                         use_fixedW=self.use_fixedW, fixedW=self.fixedW)
                     
                 # for num_trial in range(num_trials): # 20
 
@@ -1072,8 +1090,28 @@ def create_parser():
                         help='Input ratio of basal to apical (default: 1.0)')
     
     # Synaptic weight parameters
-    parser.add_argument('--initW', type=float, default=0.0004,
-                        help='Initial weight of AMPANMDA synapses in uS (default: 0.0004)')
+    parser.add_argument(
+        '--initW',
+        type=float,
+        default=0.0004,
+        help='When use_fixedW is off: mean of log-normal excitatory weights (sigma=1, '
+             'mu=log(initW)-0.5*sigma^2 so E[weight]=initW). When use_fixedW is on: not used for '
+             'those weights (they are fixedW). Units: uS (default: 0.0004).',
+    )
+    parser.add_argument(
+        '--use_fixedW',
+        action='store_true',
+        default=False,
+        help='If set, all excitatory synapse weights that would be log-normal draws use fixedW '
+             'instead; initW does not affect those weights. Default: off (log-normal from initW).',
+    )
+    parser.add_argument(
+        '--fixedW',
+        type=float,
+        default=0.0004,
+        help='Excitatory synapse weight (uS) when --use_fixedW is set. Does not change the '
+             'log-normal distribution when use_fixedW is off (default: 0.0004).',
+    )
     parser.add_argument('--num_func_group', type=int, default=10,
                         help='Number of functional groups (default: 10)')
     parser.add_argument('--inh_delay', type=float, default=4.0,
@@ -1097,12 +1135,18 @@ def create_parser():
                         help='Random seed for cluster stimulus spike generation (stim times in generate_vecstim, '
                              'preunit permutation). If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) (default: None)')
     parser.add_argument(
+        '--use_replay_bg',
+        action='store_true',
+        default=False,
+        help='If set, load synapse layout, cluster metadata, and background spikes from replay_bg_csv '
+             '(reference run). If not set, normal simulation: random synapses and generated background.',
+    )
+    parser.add_argument(
         '--replay_bg_csv',
         type=str,
-        default='/G/results/simulation_singclus_Oct25/basal_range0_clus_invivo_REAL/1/8/simulation_params.json',
-        help='Replay synapse layout + cluster metadata + background exc/inh spikes from reference '
-             'section_synapse_df.csv next to this path (simulation_params.json, run directory, or .csv). '
-             'Spikes matched by syn identity. Pass none for random placement and generated background.',
+        default='/G/results/simulation_singclus_Oct25/basal_range0_clus_invivo_REAL/1/8/section_synapse_df.csv',
+        help='Reference path used only when --use_replay_bg is set: section_synapse_df.csv '
+             'or a run directory (uses section_synapse_df.csv inside). Spikes matched by syn identity.',
     )
     
     # Biophysics model selection
@@ -1151,17 +1195,23 @@ def build_cell(args):
     bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
     clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
     with_ap, with_global_rec = args.with_ap, args.with_global_rec
-    replay_bg_csv = resolve_replay_section_synapse_csv(getattr(args, 'replay_bg_csv', None))
+    if args.use_replay_bg:
+        replay_bg_csv = resolve_replay_section_synapse_csv(getattr(args, 'replay_bg_csv', None))
+    else:
+        replay_bg_csv = None
            
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
     channel_suffix = args.channel_suffix.strip()
     channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
     channel_suffix += ''.join(['_ap' if with_ap else '', '_globrec' if with_global_rec else ''])
     simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}'
-    
+    if args.use_fixedW:
+        w_tag = format(args.fixedW, '.10g').replace('-', 'neg')
+        simu_folder = f'{simu_folder}_fixedW{w_tag}'
+
     # Normalize folder tag
     folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
-    folder_path = f'/G/results/simulation_singclus_supple_Apr26/{simu_folder}/{folder_tag}/{epoch}'
+    folder_path = f'/G/results/simulation_singclus_supple_Apr26/{simu_folder}_expected/{folder_tag}/{epoch}'
     # folder_path = Path('/G/results/simulation_multiclus_Oct25') / simu_folder / folder_tag / str(epoch)
 
     simulation_params = {
@@ -1176,12 +1226,14 @@ def build_cell(args):
         'cluster radius': cluster_radius, 'background excitatory frequency': bg_exc_freq,
         'background inhibitory frequency': bg_inh_freq, 'input ratio of basal to apical': input_ratio_basal_apic,
         'background excitatory channel type': bg_exc_channel_type, 'initial weight of AMPANMDA synapses': initW,
+        'use_fixedW': args.use_fixedW, 'fixedW': args.fixedW,
         'number of functional groups': num_func_group, 'delay of inhibitory inputs': inh_delay,
         'number of stimuli': num_stim, 'time point of stimulation': stim_time,
         'number of connection per preunit': num_conn_per_preunit, 'number of synapses per cluster': num_syn_per_clus,
         'number of trials': num_trials, 'syn_pos_seed': syn_pos_seed,
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
         'with_ap': with_ap, 'with_global_rec': with_global_rec,
+        'use_replay_bg': args.use_replay_bg,
         'replay_bg_csv': replay_bg_csv,
         'segment_nmda_spike_rate_npz': 'segment_nmda_spike_rate.npz' if with_global_rec else None,
     }
@@ -1203,7 +1255,8 @@ def build_cell(args):
                                     spat_condtion, num_conn_per_preunit, num_syn_per_clus, folder_path) 
 
     cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
-                     bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials)
+                     bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials,
+                     use_fixedW=args.use_fixedW, fixedW=args.fixedW)
 
 def run_processes(args_list, epoch):
     """Run multiple processes with different parameter sets"""
@@ -1249,12 +1302,12 @@ if __name__ == "__main__":
     # Parameter combinations configuration - easy to modify and maintain
     param_config = {
         'sec_type': ['basal'],           # Section types: ['basal', 'apical']
-        'dis_to_root': [0],              # Distance to root: [0, 1, 2]
+        'dis_to_root': [1],              # Distance to root: [0, 1, 2]
         # 'spat_cond': ['clus', 'distr'],  # Spatial condition: ['clus', 'distr']
         'batch_config': {
             'num_batches': 1,            # Number of batches
             'epochs_per_batch': 1,      # Epochs per batch
-            'start_epoch': 1            # Starting epoch number
+            'start_epoch': 8           # Starting epoch number
         }
     }
     

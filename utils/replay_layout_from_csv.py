@@ -47,41 +47,79 @@ def get_section_by_section_id(cell, section_id_synapse: int):
     raise ValueError(f"replay_layout: NEURON section not found for name={target_name!r}")
 
 
+def _build_section_id_to_sec(cell) -> dict:
+    """Single pass over NEURON sections + section_df (O(n_sec)); avoid per-synapse h.allsec() scans."""
+    name_to_sec = {}
+    for sec in h.allsec():
+        name_to_sec[sec.psection()["name"]] = sec
+    sec_by_id = {}
+    for _, r in cell.section_df.iterrows():
+        sid = int(r["section_id"])
+        nm = r["section_name"]
+        if nm in name_to_sec:
+            sec_by_id[sid] = name_to_sec[nm]
+    return sec_by_id
+
+
 def populate_section_synapse_df_from_csv(
     cell,
-    csv_path: str,
     num_syn_basal_exc: int,
     num_syn_apic_exc: int,
     num_syn_basal_inh: int,
     num_syn_apic_inh: int,
     num_syn_soma_inh: int,
+    csv_path: str | None = None,
+    ref_df: pd.DataFrame | None = None,
 ) -> None:
-    if not os.path.isfile(csv_path):
-        raise FileNotFoundError(f"replay_layout: {csv_path}")
+    if ref_df is not None:
+        ref = ref_df
+    elif csv_path is not None:
+        if not os.path.isfile(csv_path):
+            raise FileNotFoundError(f"replay_layout: {csv_path}")
+        ref = pd.read_csv(csv_path)
+    else:
+        raise ValueError("replay_layout: provide csv_path or ref_df")
 
-    ref = pd.read_csv(csv_path)
     missing = set(REQUIRED_CSV_COLUMNS) - set(ref.columns)
     if missing:
         raise ValueError(f"replay_layout: CSV missing columns: {sorted(missing)}")
 
+    sec_by_id = _build_section_id_to_sec(cell)
     n_rows = len(ref)
+    sid_arr = ref["section_id_synapse"].to_numpy()
+    loc_arr = ref["loc"].to_numpy()
+    type_arr = ref["type"].astype(str).to_numpy()
+    d_soma = ref["distance_to_soma"].to_numpy()
+    d_tuft = ref["distance_to_tuft"].to_numpy()
+    cflag = ref["cluster_flag"].to_numpy()
+    cctr = ref["cluster_center_flag"].to_numpy()
+    cid = ref["cluster_id"].to_numpy()
+    puid = ref["pre_unit_id"].to_numpy()
+    region_arr = ref["region"].astype(str).to_numpy()
+    branch_arr = ref["branch_idx"].to_numpy()
+    has_syn_w = "syn_w" in ref.columns
+    sw_arr = ref["syn_w"].to_numpy() if has_syn_w else None
+
     rows: List[dict] = []
-    for _, row in tqdm(
-        ref.iterrows(),
-        total=n_rows,
-        desc="replay_layout: synapses from CSV",
-        unit="row",
-    ):
-        sid = _safe_int(row["section_id_synapse"], 0)
-        loc = float(row["loc"])
-        section = get_section_by_section_id(cell, sid)
+    for i in tqdm(range(n_rows), desc="replay_layout: synapses from CSV", unit="row"):
+        sid = _safe_int(sid_arr[i], 0)
+        loc = float(loc_arr[i])
+        if sid not in sec_by_id:
+            raise ValueError(f"replay_layout: unknown section_id_synapse={sid}")
+        section = sec_by_id[sid]
         segment_synapse = section(loc)
 
-        sw = row.get("syn_w")
-        if sw is not None and not (isinstance(sw, float) and np.isnan(sw)):
-            syn_w = float(sw)
+        if has_syn_w:
+            sw = sw_arr[i]
+            if sw is not None and not (isinstance(sw, float) and np.isnan(sw)):
+                syn_w = float(sw)
+            else:
+                syn_w = None
         else:
             syn_w = None
+
+        bi = branch_arr[i]
+        branch_idx = -1 if pd.isna(bi) else int(bi)
 
         rows.append(
             {
@@ -89,15 +127,15 @@ def populate_section_synapse_df_from_csv(
                 "section_synapse": section,
                 "segment_synapse": segment_synapse,
                 "loc": loc,
-                "type": str(row["type"]),
-                "distance_to_soma": float(row["distance_to_soma"]),
-                "distance_to_tuft": float(row["distance_to_tuft"]),
-                "cluster_flag": _safe_int(row["cluster_flag"], -1),
-                "cluster_center_flag": _safe_int(row["cluster_center_flag"], -1),
-                "cluster_id": _safe_int(row["cluster_id"], -1),
-                "pre_unit_id": _safe_int(row["pre_unit_id"], -1),
-                "region": str(row["region"]),
-                "branch_idx": _safe_int(row.get("branch_idx"), -1),
+                "type": str(type_arr[i]),
+                "distance_to_soma": float(d_soma[i]),
+                "distance_to_tuft": float(d_tuft[i]),
+                "cluster_flag": _safe_int(cflag[i], -1),
+                "cluster_center_flag": _safe_int(cctr[i], -1),
+                "cluster_id": _safe_int(cid[i], -1),
+                "pre_unit_id": _safe_int(puid[i], -1),
+                "region": str(region_arr[i]),
+                "branch_idx": branch_idx,
                 "syn_w": syn_w,
                 "synapse": None,
                 "netstim": None,
@@ -154,13 +192,15 @@ def replay_assign_cluster_metadata(
     else:
         max_cid = int(clus_exc["cluster_id"].max())
         num_c = max_cid + 1
+        by_cluster = {int(k): g for k, g in clus_exc.groupby("cluster_id", sort=False)}
+        empty_sub = clus_exc.iloc[0:0]
         indices = []
         for cid in tqdm(
             range(num_c),
             desc="replay_layout: cluster indices",
             unit="cluster",
         ):
-            sub = clus_exc[clus_exc["cluster_id"] == cid]
+            sub = by_cluster.get(cid, empty_sub)
             ctr = sub[sub["cluster_center_flag"] == 1]
             sur = sub[sub["cluster_center_flag"] == 0]
             if len(ctr) >= 1:

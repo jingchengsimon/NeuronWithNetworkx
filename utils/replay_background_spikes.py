@@ -18,8 +18,32 @@ from tqdm import tqdm
 SynKey = Tuple[int, float, str, str, int, int]
 
 
+def _syn_key_from_arrays(
+    i: int,
+    section_id: np.ndarray,
+    loc: np.ndarray,
+    typ: np.ndarray,
+    region: np.ndarray,
+    cluster_flag: np.ndarray,
+    branch_idx: np.ndarray,
+) -> SynKey:
+    bi = branch_idx[i]
+    if pd.isna(bi):
+        bid = -1
+    else:
+        bid = int(bi)
+    return (
+        int(section_id[i]),
+        round(float(loc[i]), 12),
+        str(typ[i]),
+        str(region[i]),
+        int(cluster_flag[i]),
+        bid,
+    )
+
+
 def resolve_replay_section_synapse_csv(replay_arg: Optional[str]) -> Optional[str]:
-    """Resolve CLI path to section_synapse_df.csv (may pass .json path or run directory)."""
+    """Resolve CLI path to section_synapse_df.csv (explicit .csv file or run directory)."""
     if replay_arg is None:
         return None
     s = str(replay_arg).strip()
@@ -29,9 +53,9 @@ def resolve_replay_section_synapse_csv(replay_arg: Optional[str]) -> Optional[st
     if os.path.isdir(path):
         return os.path.join(path, "section_synapse_df.csv")
     if path.lower().endswith(".json"):
-        return os.path.join(os.path.dirname(path), "section_synapse_df.csv")
-    if path.lower().endswith(".csv"):
-        return path
+        raise ValueError(
+            "replay_bg_csv must be section_synapse_df.csv (or a directory containing it), not .json"
+        )
     return path
 
 
@@ -70,12 +94,8 @@ def _parse_spike_train_bg_cell(val: Any) -> np.ndarray:
     return np.asarray(x, dtype=float)
 
 
-def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dict[SynKey, np.ndarray]]:
-    """Load exc (A) and inh (B) background spike trains keyed by syn identity."""
-    if not os.path.isfile(csv_path):
-        raise FileNotFoundError(f"replay_bg: section_synapse_df not found: {csv_path}")
-
-    ref = pd.read_csv(csv_path)
+def build_replay_spike_maps_from_df(ref: pd.DataFrame) -> Tuple[Dict[SynKey, np.ndarray], Dict[SynKey, np.ndarray]]:
+    """Build exc/inh spike maps from an already-loaded section_synapse_df DataFrame (column-wise loop)."""
     need = {
         "section_id_synapse",
         "loc",
@@ -89,26 +109,29 @@ def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dic
     if missing:
         raise ValueError(f"replay_bg: reference CSV missing columns: {sorted(missing)}")
 
+    section_id = ref["section_id_synapse"].to_numpy()
+    loc = ref["loc"].to_numpy()
+    typ = ref["type"].astype(str).to_numpy()
+    region = ref["region"].astype(str).to_numpy()
+    cluster_flag = ref["cluster_flag"].to_numpy()
+    branch_idx = ref["branch_idx"].to_numpy()
+    spike_col = ref["spike_train_bg"]
+
     exc_map: Dict[SynKey, np.ndarray] = {}
     inh_map: Dict[SynKey, np.ndarray] = {}
     dup_exc: list[SynKey] = []
     dup_inh: list[SynKey] = []
 
     n_rows = len(ref)
-    for _, row in tqdm(
-        ref.iterrows(),
-        total=n_rows,
-        desc="replay_bg: load spike maps",
-        unit="row",
-    ):
-        key = row_syn_key(row)
-        spikes = _parse_spike_train_bg_cell(row["spike_train_bg"])
-        typ = str(row["type"])
-        if typ == "A":
+    for i in tqdm(range(n_rows), desc="replay_bg: load spike maps", unit="row"):
+        key = _syn_key_from_arrays(i, section_id, loc, typ, region, cluster_flag, branch_idx)
+        spikes = _parse_spike_train_bg_cell(spike_col.iat[i])
+        t = typ[i]
+        if t == "A":
             if key in exc_map:
                 dup_exc.append(key)
             exc_map[key] = spikes
-        elif typ == "B":
+        elif t == "B":
             if key in inh_map:
                 dup_inh.append(key)
             inh_map[key] = spikes
@@ -118,4 +141,25 @@ def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dic
     if dup_inh:
         print(f"replay_bg: warning: {len(dup_inh)} duplicate keys in ref inh rows (last wins)")
 
+    return exc_map, inh_map
+
+
+def load_replay_csv_and_maps(csv_path: str) -> Tuple[pd.DataFrame, Dict[SynKey, np.ndarray], Dict[SynKey, np.ndarray]]:
+    """Read section_synapse_df.csv once; validate layout columns; return DataFrame + spike maps."""
+    from utils.replay_layout_from_csv import REQUIRED_CSV_COLUMNS
+
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(f"replay_bg: section_synapse_df not found: {csv_path}")
+
+    ref = pd.read_csv(csv_path)
+    missing = set(REQUIRED_CSV_COLUMNS) - set(ref.columns)
+    if missing:
+        raise ValueError(f"replay_layout/replay_bg: CSV missing columns: {sorted(missing)}")
+    exc_map, inh_map = build_replay_spike_maps_from_df(ref)
+    return ref, exc_map, inh_map
+
+
+def load_replay_spike_maps(csv_path: str) -> Tuple[Dict[SynKey, np.ndarray], Dict[SynKey, np.ndarray]]:
+    """Load exc (A) and inh (B) background spike trains keyed by syn identity (reads CSV once)."""
+    _, exc_map, inh_map = load_replay_csv_and_maps(csv_path)
     return exc_map, inh_map

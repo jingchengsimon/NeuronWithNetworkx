@@ -10,16 +10,30 @@ from utils.synapses_models import AMPANMDA
 from utils.generate_pink_noise import make_noise
 from utils.replay_background_spikes import row_syn_key
 
+
+def _exc_init_w_distr_array(num_syn, initW, synapse_pos_seed, use_fixedW, fixedW, *, replace=True):
+    """If use_fixedW: constant fixedW. Else: log-normal with mean set by initW (sigma fixed); fixedW unused."""
+    if use_fixedW:
+        return np.full(num_syn, fixedW, dtype=float)
+    loc_rnd = np.random.default_rng(synapse_pos_seed)
+    sigma = 1
+    mu = np.log(initW) - 0.5 * sigma**2
+    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
+    return loc_rnd.choice(syn_w_distr, size=num_syn, replace=replace)
+
+
 def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
                               synapse_pos_seed, spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-                              replay_exc_by_key=None):
+                              replay_exc_by_key=None, use_fixedW=False, fixedW=0.0004):
 
     if replay_exc_by_key is not None:
         return _add_background_exc_inputs_replay(
             section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
             synapse_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
             replay_exc_by_key,
+            use_fixedW=use_fixedW,
+            fixedW=fixedW,
         )
 
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
@@ -31,8 +45,6 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
     # Fix: Pass spike_gen_seed to make_noise for reproducibility
     pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spike_gen_seed=spike_gen_seed)
     
-    # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(synapse_pos_seed)
     # Fix: Pre-generate seeds for each synapse to ensure deterministic results in multithreading
     # Use a deterministic hash-like function to generate unique seeds for each synapse index
     # This ensures each synapse gets a unique but deterministic seed based on spike_gen_seed and index
@@ -41,10 +53,9 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         # This ensures deterministic but unique seeds for each synapse
         return (base_seed * 1000003 + index * 100003) % (2**31)
     
-    sigma = 1
-    mu = np.log(initW) - 0.5*sigma**2
-    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
-    initW_distr_array = loc_rnd.choice(syn_w_distr, size=num_syn_bg_exc, replace=True)
+    initW_distr_array = _exc_init_w_distr_array(
+        num_syn_bg_exc, initW, synapse_pos_seed, use_fixedW, fixedW, replace=True
+    )
     e_syn, tau1, tau2 = syn_param_exc
 
     def process_section(i):    
@@ -138,17 +149,17 @@ def _add_background_exc_inputs_replay(
     section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
     synapse_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
     replay_exc_by_key,
+    use_fixedW=False,
+    fixedW=0.0004,
 ):
     """Use pre-recorded exc background spikes; synapse weights unchanged from non-replay path."""
     sec_syn_bg_exc_df = section_synapse_df[section_synapse_df["type"].isin(["A"])]
     num_syn_bg_exc = len(sec_syn_bg_exc_df)
     sec_syn_bg_exc_df_clus = section_synapse_df_clus[section_synapse_df_clus["type"].isin(["A"])]
 
-    loc_rnd = np.random.default_rng(synapse_pos_seed)
-    sigma = 1
-    mu = np.log(initW) - 0.5 * sigma**2
-    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
-    initW_distr_array = loc_rnd.choice(syn_w_distr, size=num_syn_bg_exc, replace=True)
+    initW_distr_array = _exc_init_w_distr_array(
+        num_syn_bg_exc, initW, synapse_pos_seed, use_fixedW, fixedW, replace=True
+    )
     e_syn, tau1, tau2 = syn_param_exc
 
     def process_section(i):
@@ -534,13 +545,8 @@ def _add_background_inh_inputs_replay(section_synapse_df, syn_param_inh, inh_del
 
 
 def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, initW, 
-                         spt_unit_array, synapse_pos_seed, num_preunit):  
-    
-    # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(synapse_pos_seed)
-    sigma = 1
-    mu = np.log(initW) - 0.5*sigma**2
-    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
+                         spt_unit_array, synapse_pos_seed, num_preunit,
+                         use_fixedW=False, fixedW=0.0004):  
 
     num_syn_clustered_per_cluster = len(section_synapse_df[
         (section_synapse_df['type'] == 'A') &
@@ -549,7 +555,9 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
     ])
 
     num_syn_bg_exc = num_clusters * num_syn_clustered_per_cluster
-    initW_distr_array = loc_rnd.choice(syn_w_distr, size=num_syn_bg_exc)
+    initW_distr_array = _exc_init_w_distr_array(
+        num_syn_bg_exc, initW, synapse_pos_seed, use_fixedW, fixedW, replace=True
+    )
 
     initW_distr_lists = np.split(initW_distr_array, num_preunit)
     initW_distr_lists = [list(chunk) for chunk in initW_distr_lists]  # 转换成 list 方便 pop 操作

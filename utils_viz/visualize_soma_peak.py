@@ -2,6 +2,7 @@ import os
 import re
 import json
 import glob
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -49,6 +50,22 @@ def _normalize_soma_shape(soma: np.ndarray):
 
 def _samples_per_ms_from_dt(dt_seconds: float) -> int:
     return int(round(1e-3 / dt_seconds))
+
+
+def _ylabel_for_anal_metric(anal_loc: str, metric: str) -> str:
+    loc = (anal_loc or "").lower()
+    m = (metric or "").lower()
+    if m == "peak":
+        if loc == "basal":
+            return "Soma EPSP peak (mV)"
+        if loc == "apical":
+            return "Tuft EPSP peak (mV)"
+    if m == "area":
+        if loc == "basal":
+            return "Soma EPSP area (mV·s)"
+        if loc == "apical":
+            return "Tuft EPSP area (mV·s)"
+    return f"{anal_loc.capitalize()} {metric}"
 
 
 # ---------------------------
@@ -215,7 +232,7 @@ def plot_peak_violins(
     y-axis: peak
     each suffix: one subplot (expand to the right)
     violin color: clus=red, distr=blue
-    inside violin: boxplot
+    inside violin: boxplot (median line always drawn)
     remove median line from violin + remove error bar
     """
     suffix_list = sorted(df["suffix"].unique().tolist())
@@ -316,11 +333,12 @@ def plot_peak_violins(
         if len(unique_metrics) == 1:
             metric = str(unique_metrics[0])
 
-    if anal_loc:
-        axes[0].set_ylabel(f"{anal_loc.capitalize()} {metric}") # (mV)  [max_t({anal_loc}[-1]-{anal_loc}[0])]")
+    if anal_loc and metric:
+        axes[0].set_ylabel(_ylabel_for_anal_metric(anal_loc, metric))
+    elif metric:
+        axes[0].set_ylabel(metric.capitalize())
     else:
-        # fallback for backward compatibility if df has no anal_loc
-        axes[0].set_ylabel(f"{metric.capitalize()}")
+        axes[0].set_ylabel("")
 
 
     fig.tight_layout()
@@ -361,41 +379,107 @@ def visualize_soma_peak_from_base(
     return df, fig, axes
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Violin plots for basal (soma) vs apical (tuft) EPSP metrics."
+    )
+    parser.add_argument(
+        "--root-dir",
+        default="/G/results/simulation_singclus_supple_Feb26",
+        help="Directory containing <anal_loc>_range<N>_clus_invivo_* experiment trees.",
+    )
+    parser.add_argument("--range-idx", type=int, default=1, help="Range index N in path names.")
+    parser.add_argument(
+        "--suffixes",
+        nargs="+",
+        default=["spktimevar", "bgtimevar"],
+        help="Experiment suffixes (e.g. spktimevar bgtimevar).",
+    )
+    parser.add_argument(
+        "--window-ms",
+        nargs=2,
+        type=float,
+        default=[-20.0, 100.0],
+        metavar=("START", "END"),
+        help="Time window around stimulation (ms).",
+    )
+    parser.add_argument(
+        "--metrics",
+        nargs="+",
+        choices=["peak", "area"],
+        default=["peak"],
+        help="Metrics to plot (one figure file per anal_loc x metric).",
+    )
+    parser.add_argument(
+        "--anal-locs",
+        nargs="+",
+        choices=["basal", "apical"],
+        default=["basal", "apical"],
+        help="Which recordings to plot.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="./results",
+        help="Directory for saved figures.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["pdf", "png"],
+        default="pdf",
+        dest="fig_format",
+        help="Figure file format.",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Do not call plt.show() (useful for batch runs).",
+    )
+    args = parser.parse_args()
 
-    # ------- independent naming variables -------
-    root_dir = "/G/results/simulation_singclus_supple_Feb26"
-    range_idx = 1               # e.g., 0-2
-    suffixes = ["spktimevar", "bgtimevar"]   # can extend: ["spktimevar", "bgtimevar", ...]
-    window_ms = (-20, 100)
-    
-    for anal_loc in ["basal", "apical"]:
-        for metric in ["peak"]:
+    # Set True only when post-processing a fresh bg-vary sweep to choose bg_spike_gen_seed (best_epoch).
+    RUN_BG_SEED_DIAGNOSTICS = False
 
-            # ------- assemble base prefix (ends with underscore) -------
-            # Note: visualize_soma_peak_from_base expects "*_clus_invivo_" prefix to infer base_root
-            # so here we intentionally build the clus-prefix.
+    window_ms = (float(args.window_ms[0]), float(args.window_ms[1]))
+
+    for anal_loc in args.anal_locs:
+        for metric in args.metrics:
             base_clus_invivo_prefix = (
-                f"{root_dir}/{anal_loc}_range{range_idx}_clus_invivo_"
+                f"{args.root_dir.rstrip('/')}/{anal_loc}_range{args.range_idx}_clus_invivo_"
             )
 
-            # ------- run for each suffix (will expand to the right if you pass multiple suffixes at once) -------
-            # Option A (recommended): pass all suffixes together -> one figure with multiple columns
+            out_name = (
+                f"{anal_loc}_range{args.range_idx}_{metric}_violin_median.{args.fig_format}"
+            )
+            save_path = os.path.join(args.output_dir, out_name)
+
             df, fig, axes = visualize_soma_peak_from_base(
                 base_clus_invivo_prefix=base_clus_invivo_prefix,
                 anal_loc=anal_loc,
                 metric=metric,
-                suffixes=suffixes,
+                suffixes=list(args.suffixes),
                 window_ms=window_ms,
-                save_path=f"{anal_loc}_range{range_idx}_{metric}_violin_median.png",
+                save_path=save_path,
+                show=not args.no_show,
             )
+            if args.no_show:
+                plt.close(fig)
 
-            # ------- print epoch index where both conditions are closest to their medians -------
-            # df columns: ["epoch", "suffix", "condition", "peak", "folder", "anal_loc", "metric"]
-            # 这里的 "peak" 列在 metric="area" 时也存的是 area 数值
-            value_col = "peak"
-            needed_cols = ["epoch", "suffix", "condition", value_col]
-            if all(col in df.columns for col in needed_cols):
-                # 1) 每个 (suffix, condition) 的全局 median（跨 epoch + trial）
+            # --- Optional stdout: suggest bg_spike_gen_seed via best_epoch (disabled by default) ---
+            # PURPOSE: After a bg-vary sweep (e.g. bgtimevar), each `epoch` folder usually matches one
+            # background draw (see L5b_simulation: bg_spike_gen_seed defaults to epoch if unset). This
+            # block finds best_epoch minimizing
+            #   |clus_epoch_median - clus_overall_median| + |distr_epoch_median - distr_overall_median|
+            # so clus/distr median responses jointly sit near the global median — a reasonable
+            # representative bg random seed for follow-up (e.g. spktimevar at fixed bg).
+            #
+            # OFF by default: Current runs already use bg seeds chosen in an earlier sweep; re-printing
+            # a new best_epoch from these outputs would no longer mean "pick seed for the next sim" and
+            # can mislead. Toggle RUN_BG_SEED_DIAGNOSTICS above when analyzing a fresh bg sweep.
+            if RUN_BG_SEED_DIAGNOSTICS:
+                value_col = "peak"
+                needed_cols = ["epoch", "suffix", "condition", value_col]
+                if not all(col in df.columns for col in needed_cols):
+                    continue
+
                 overall_median_by_cond = (
                     df.groupby(["suffix", "condition"])[value_col]
                     .median()
@@ -403,7 +487,6 @@ if __name__ == "__main__":
                     .reset_index()
                 )
 
-                # 2) 每个 (suffix, condition, epoch) 的 epoch 内 median（跨 trial）
                 epoch_stats = (
                     df.groupby(["suffix", "condition", "epoch"])[value_col]
                     .median()
@@ -411,7 +494,6 @@ if __name__ == "__main__":
                     .reset_index()
                 )
 
-                # 3) 合并，按 (suffix, epoch, condition) 计算 |epoch_median - overall_median|
                 merged = epoch_stats.merge(
                     overall_median_by_cond,
                     on=["suffix", "condition"],
@@ -419,11 +501,7 @@ if __name__ == "__main__":
                 )
                 merged["abs_diff"] = (merged["epoch_median"] - merged["overall_median"]).abs()
 
-                # 4) 对每个 suffix，在同一 epoch 上同时考虑 clus/distr：
-                #    distance(epoch) = |clus_epoch_median - clus_overall_median|
-                #                     + |distr_epoch_median - distr_overall_median|
                 for suf, sub_suf in merged.groupby("suffix"):
-                    # 只保留 clus / distr 两个条件
                     sub_suf = sub_suf[sub_suf["condition"].isin(["clus", "distr"])]
                     if sub_suf.empty:
                         continue
@@ -435,17 +513,17 @@ if __name__ == "__main__":
                         .reset_index()
                     )
 
-                    # 找到 total_abs_diff 最小的 epoch
                     best_idx = epoch_score["total_abs_diff"].idxmin()
                     best_row = epoch_score.loc[best_idx]
                     best_epoch = int(best_row["epoch"])
                     best_score = float(best_row["total_abs_diff"])
 
-                    # 顺便打印该 epoch 下各 condition 的 epoch_median 以及各自的 overall_median
                     detail = merged[(merged["suffix"] == suf) & (merged["epoch"] == best_epoch)]
 
-                    print(f"[{anal_loc}] metric={metric}, suffix={suf} -> best_epoch={best_epoch}, "
-                          f"sum_abs_diff(clus+distr)={best_score:.4f}")
+                    print(
+                        f"[{anal_loc}] metric={metric}, suffix={suf} -> best_epoch={best_epoch}, "
+                        f"sum_abs_diff(clus+distr)={best_score:.4f}"
+                    )
                     for cond in ["clus", "distr"]:
                         row_c = detail[detail["condition"] == cond]
                         if row_c.empty:
@@ -457,5 +535,3 @@ if __name__ == "__main__":
                             f"    condition={cond}: epoch_median={em:.4f}, "
                             f"overall_median={om:.4f}, |diff|={diff:.4f}"
                         )
-
-
