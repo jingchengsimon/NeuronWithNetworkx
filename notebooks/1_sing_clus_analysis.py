@@ -526,11 +526,11 @@ iter_step, num_epochs = 1, 50
 print("🚨 Running in SAFE MODE to prevent system restart")
 print("💡 To enable parallel processing, set parallel=True (use with caution)")
 
-# batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
-#                             {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
+batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
+                            {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
 
-# batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
-#                             {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
+batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
+                            {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
 
 # # 4. Vivo N+A Clustered & Distributed
 # batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
@@ -563,13 +563,13 @@ print("💡 To enable parallel processing, set parallel=True (use with caution)"
 # batch_nonlinearity_analysis('vivo_A_distr', '_distr_invivo_singclus_AMPA', ['basal', 'apical'],
 #                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-root_folder_path = '/G/results/simulation_singclus_Oct25'
+# root_folder_path = '/G/results/simulation_singclus_Oct25'
 
-# 6. Vivo N+A 10ms Clustered & Distributed
-for time_range in [10, 20, 40]:
-    batch_nonlinearity_analysis(f'vivo_N+A_{time_range}ms', f'_clus_invivo_singclus_t{time_range}ms', ['basal', 'apical'],
-                                {'basal': ['soma'], 'apical': ['nexus']}, num_epochs)
-    batch_nonlinearity_analysis(f'vivo_N+A_distr_{time_range}ms', f'_distr_invivo_singclus_t{time_range}ms', ['basal', 'apical'],
-                                {'basal': ['soma'], 'apical': ['nexus']}, num_epochs)
+# # 6. Vivo N+A 10ms Clustered & Distributed
+# for time_range in [10, 20, 40]:
+#     batch_nonlinearity_analysis(f'vivo_N+A_{time_range}ms', f'_clus_invivo_singclus_t{time_range}ms', ['basal', 'apical'],
+#                                 {'basal': ['soma'], 'apical': ['nexus']}, num_epochs)
+#     batch_nonlinearity_analysis(f'vivo_N+A_distr_{time_range}ms', f'_distr_invivo_singclus_t{time_range}ms', ['basal', 'apical'],
+#                                 {'basal': ['soma'], 'apical': ['nexus']}, num_epochs)
 
 saved_file = save_epsps_global()
