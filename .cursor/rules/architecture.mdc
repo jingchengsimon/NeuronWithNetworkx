@@ -1,0 +1,56 @@
+---
+description: Architecture invariants and module responsibilities
+globs: ["**/*.py"]
+alwaysApply: true
+---
+
+# Architecture Rules
+
+## Module Responsibilities — Do Not Cross Boundaries
+
+| Module | Responsibility | May NOT do |
+|--------|---------------|------------|
+| `L5b_simulation.py` | Cell class, CLI, orchestration, `h.run()` | Generate pink noise directly |
+| `add_inputs_utils.py` | Create synapses, attach spike trains | Call `h.run()`, modify graph |
+| `generate_stim_utils.py` | `generate_indices`, `generate_vecstim` | Touch NEURON objects |
+| `generate_pink_noise.py` | `make_noise()` — pure numpy | Import NEURON |
+| `graph_utils.py` | Build DiG, compute branch order | Modify synapses |
+| `distance_utils.py` | Cable distance calculation | Modify DataFrame |
+| `replay_*.py` | CSV → synapse layout / spike maps | Generate new random spikes |
+
+## Central Data Structure: `section_synapse_df`
+
+- **Schema is frozen.** 18 columns — see docs/CONVENTIONS.md for full spec.
+- All synapse state lives here: NEURON objects (`synapse`, `netstim`, `netcon`), spike trains, weights.
+- Writes protected by `self.lock` under `ThreadPoolExecutor`.
+- NEURON object columns (`synapse`, `netstim`, `netcon`) are not serializable — they are `None` in CSV.
+
+## Output Array Shape Invariant
+
+```
+standard:  (T, num_stim, num_aff_fibers, num_trials)
+dendritic: (num_clusters_sampled, T, num_stim, num_aff_fibers, num_trials)
+global:    (num_segments_noaxon, T, num_stim, num_aff_fibers, num_trials)
+```
+
+Where `T = 1 + 40 * SIMU_DURATION` (dt = 0.025 ms). **Never reorder axes.**
+
+## Seed → RNG Type Mapping (Invariant)
+
+- `syn_pos_seed` → `np.random.default_rng()` + `random.seed()`
+- `bg_spike_gen_seed` → per-synapse `np.random.default_rng(hash(seed, i))`
+- `clus_spike_gen_seed` → `np.random.RandomState()` (legacy API required)
+- `clus_loc_rnd` → `np.random.RandomState(syn_pos_seed)` — cluster spatial positioning
+
+## NEURON Object Lifetime Rule
+
+Every `h.VecStim()`, `h.Vector()`, `h.NetCon()`, and synapse object created before
+`h.run()` **must** be stored in `section_synapse_df` or a local list that survives until
+after `h.run()` returns. Python GC of NEURON objects causes segfault.
+
+## Parallelization Boundaries
+
+- `ProcessPoolExecutor` / `multiprocessing.Process`: **across** parameter combinations.
+- `ThreadPoolExecutor`: **within** one cell for data prep only (synapse creation, spike gen).
+- `h.run()`: **main thread only**. Never inside ThreadPoolExecutor.
+- Do not use `multiprocessing.set_start_method('spawn')` — creates excess NEURON instances.

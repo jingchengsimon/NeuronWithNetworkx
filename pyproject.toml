@@ -1,0 +1,71 @@
+[project]
+name = "l5pn-dendritic-clustering"
+version = "0.1.0"
+requires-python = ">=3.9"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+# Exclude backup, legacy, and visualization-only directories
+exclude = [
+    "mod/",
+    "modelFile/",
+    "utils_anal/",
+    "utils_viz/",
+    "notebooks/",
+    "results/",
+    "__pycache__/",
+    ".history/",
+    "history/",
+    "backup/",
+    "archive/",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long — many NEURON / DataFrame lines exceed 120
+    "E741",   # ambiguous variable name (l, i, j common in matrix code)
+    "B023",   # function uses loop variable — common in closure-based synapse generation
+    "SIM108", # ternary — readability preference
+    "F841",   # local variable assigned but unused — many commented-out debug paths
+    "UP015",  # open() mode — json.load(open(...)) pattern is pervasive
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["utils"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true   # NEURON stubs don't exist
+exclude = [
+    "mod/",
+    "modelFile/",
+    "utils_anal/",
+    "utils_viz/",
+    "notebooks/",
+    "results/",
+    "backup/",
+    "archive/",
+]
+
+[[tool.mypy.overrides]]
+module = "neuron.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "utils.synapses_models"
+ignore_errors = true   # heavily NEURON-dependent, no stubs
