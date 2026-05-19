@@ -479,9 +479,9 @@ def batch_nonlinearity_analysis(prefix, filename_template, anal_loc_list, rec_lo
     for anal_loc in anal_loc_list:
         rec_loc_list = rec_loc_list_map.get(anal_loc, ['dend'])
         
-        for attr in ['peak', 'area']:
+        for attr in ['area']:
             for rec_loc in rec_loc_list:
-                for range_idx in [0, 2]:
+                for range_idx in [0, 1, 2]:
                     task_params = (
                         prefix, filename_template, anal_loc, rec_loc, attr, range_idx,
                         num_epochs, iter_start_idx, iter_end_idx, iter_step
@@ -527,10 +527,10 @@ print("🚨 Running in SAFE MODE to prevent system restart")
 print("💡 To enable parallel processing, set parallel=True (use with caution)")
 
 batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
-                            {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
+                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'soma']}, num_epochs)
 
 batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
-                            {'basal': ['dend'], 'apical': ['dend']}, num_epochs)
+                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'soma']}, num_epochs)
 
 # # 4. Vivo N+A Clustered & Distributed
 # batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
