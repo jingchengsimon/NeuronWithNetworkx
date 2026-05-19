@@ -105,88 +105,97 @@ def force_release_resources():
     else:
         print("✅ Resources released successfully")
 
-def load_data(exp):
-    # 检查缓存
-    if exp in _data_cache:
-        return _data_cache[exp]
-    
+NPY_FILES = {
+    'v': 'dend_v_array',
+    'i': 'dend_i_array',
+    'nmda': 'dend_nmda_i_array',
+    'ampa': 'dend_ampa_i_array',
+    'nmda_g': 'dend_nmda_g_array',
+    'ampa_g': 'dend_ampa_g_array',
+    'soma': 'soma_v_array',
+    'apic_v': 'apic_v_array',
+    'apic_ica': 'apic_ica_array',
+    'soma_i': 'soma_i_array',
+    'trunk_v': 'trunk_v_array',
+    'basal_v': 'basal_v_array',
+    'tuft_v': 'tuft_v_array',
+    'basal_bg_i_nmda': 'basal_bg_i_nmda_array',
+    'basal_bg_i_ampa': 'basal_bg_i_ampa_array',
+    'tuft_bg_i_nmda': 'tuft_bg_i_nmda_array',
+    'tuft_bg_i_ampa': 'tuft_bg_i_ampa_array',
+}
+
+REC_LOC_REQUIRED_VARS = {
+    'dend': {'v'},
+    'soma': {'soma'},
+    'nexus': {'apic_v'},
+}
+
+def _required_vars_for_rec_loc(rec_loc):
+    return REC_LOC_REQUIRED_VARS.get(rec_loc, set(NPY_FILES.keys()))
+
+def load_data(exp, required_vars=None, load_sec_syn_df=False):
+    """Load only arrays needed by the current analysis task.
+
+    The cache is filled lazily: a later task for the same epoch can request an
+    additional array (e.g. soma after dend) without re-reading previously loaded
+    arrays.
+    """
     folder = os.path.join(root_folder_path, exp)
     dt = 1 / 40000
+    required_vars = set(required_vars or NPY_FILES.keys())
 
-    # 所有可能加载的变量名与对应文件名（不含扩展名）
-    npy_files = {
-        'v': 'dend_v_array',
-        'i': 'dend_i_array',
-        'nmda': 'dend_nmda_i_array',
-        'ampa': 'dend_ampa_i_array',
-        'nmda_g': 'dend_nmda_g_array',
-        'ampa_g': 'dend_ampa_g_array',
-        'soma': 'soma_v_array',
-        'apic_v': 'apic_v_array',
-        'apic_ica': 'apic_ica_array',
-        'soma_i': 'soma_i_array',
-        'trunk_v': 'trunk_v_array',
-        'basal_v': 'basal_v_array',
-        'tuft_v': 'tuft_v_array',
-        'basal_bg_i_nmda': 'basal_bg_i_nmda_array',
-        'basal_bg_i_ampa': 'basal_bg_i_ampa_array',
-        'tuft_bg_i_nmda': 'tuft_bg_i_nmda_array',
-        'tuft_bg_i_ampa': 'tuft_bg_i_ampa_array',
-    }
+    if exp in _data_cache:
+        data = _data_cache[exp]
+    else:
+        data = {'dt': dt}
+        with open(os.path.join(folder, 'simulation_params.json')) as f:
+            data['simu_info'] = json.load(f)
+        _data_cache[exp] = data
 
-    data = {}
+    for var_name in required_vars:
+        if var_name not in NPY_FILES:
+            continue
+        if var_name in data:
+            continue
 
-    for var_name, file_base in npy_files.items():
-        file_path = os.path.join(folder, f"{file_base}.npy")
+        file_path = os.path.join(folder, f"{NPY_FILES[var_name]}.npy")
         if os.path.exists(file_path):
             data[var_name] = np.load(file_path)
         else:
-            data[var_name] = None  # 或者不加入，如果你更喜欢 dict.get(...)
+            data[var_name] = None
 
-    # 加载 simulation info
-    with open(os.path.join(folder, 'simulation_params.json')) as f:
-        simu_info = json.load(f)
+    if load_sec_syn_df and 'sec_syn_df' not in data:
+        sec_syn_df_path = os.path.join(folder, 'section_synapse_df.csv')
+        if os.path.exists(sec_syn_df_path):
+            data['sec_syn_df'] = pd.read_csv(sec_syn_df_path)
+        else:
+            data['sec_syn_df'] = None
 
-    # 加载 section_synapse_df.csv
-    sec_syn_df_path = os.path.join(folder, 'section_synapse_df.csv')
-    if os.path.exists(sec_syn_df_path):
-        sec_syn_df = pd.read_csv(sec_syn_df_path)
-    else:
-        sec_syn_df = None
-
-    data['dt'] = dt
-    data['simu_info'] = simu_info
-    data['sec_syn_df'] = sec_syn_df
-
-    # 缓存数据
-    _data_cache[exp] = data
     return data
 
 def nonlinearity_visualization(exp, data, rec_loc, attr):
 
     if data is None:
-        data = load_data(exp)
-    v, soma, apic_v, dt = [data.get(k) for k in ('v', 'soma', 'apic_v', 'dt')]
+        data = load_data(exp, required_vars=_required_vars_for_rec_loc(rec_loc))
+    dt = data.get('dt')
     simu_info = data['simu_info']  # 必须存在
-    
-    if v.ndim == 5:
-        v = np.mean(v, axis=2) # shape: [num_clusters, num_times, num_affs, num_trials]
-        soma = np.mean(soma, axis=1) # shape: [num_times, num_affs, num_trials]
-        apic_v = np.mean(apic_v, axis=1) # shape: [num_times, num_affs, num_trials]
-        
+
     t = simu_info['time point of stimulation']
     t_start, t_end = (t-20)*40, (t+100)*40
     x = np.arange(0, t_end-t_start)*dt # for area calculation
-    
-    # 优化：使用更高效的切片和reshape操作
-    v_base_trace = v[:,:,0:1,:]  # 保持维度，避免reshape
-    soma_base_trace = soma[:,0:1,:]
-    apic_v_base_trace = apic_v[:,0:1,:]
-    
+
     # Initialize variables
     EPSP_array = None
    
     if rec_loc == 'dend':
+        v = data.get('v')
+        if v is None:
+            raise FileNotFoundError(f"Missing dend_v_array.npy for {exp}")
+        if v.ndim == 5:
+            v = np.mean(v, axis=2) # shape: [num_clusters, num_times, num_affs, num_trials]
+
+        v_base_trace = v[:,:,0:1,:]  # 保持维度，避免reshape
         dend_delta = np.mean(v[:, t_start:t_end, :, :] - v_base_trace[:, t_start:t_end, :, :], axis=-1)  # shape: [num_clusters, t, num_affs]
         if attr == 'peak':
             EPSP_array = np.mean(np.max(dend_delta, axis=1), axis=0)  # [num_affs]
@@ -195,6 +204,13 @@ def nonlinearity_visualization(exp, data, rec_loc, attr):
             EPSP_array = np.mean(np.trapz(dend_over_baseline, x, axis=1), axis=0)
 
     elif rec_loc == 'soma':
+        soma = data.get('soma')
+        if soma is None:
+            raise FileNotFoundError(f"Missing soma_v_array.npy for {exp}")
+        if soma.ndim in (4, 5):
+            soma = np.mean(soma, axis=1) # shape: [num_times, num_affs, num_trials]
+
+        soma_base_trace = soma[:,0:1,:]
         soma_delta = np.mean(soma[t_start:t_end, :, :] - soma_base_trace[t_start:t_end, :, :], axis=-1)  # shape: [t, num_affs]
         if attr == 'peak':
             EPSP_array = np.max(soma_delta, axis=0)  # [num_affs]
@@ -209,6 +225,13 @@ def nonlinearity_visualization(exp, data, rec_loc, attr):
             EPSP_array = np.trapz(soma_over_baseline, x, axis=0)
 
     elif rec_loc == 'nexus':
+        apic_v = data.get('apic_v')
+        if apic_v is None:
+            raise FileNotFoundError(f"Missing apic_v_array.npy for {exp}")
+        if apic_v.ndim in (4, 5):
+            apic_v = np.mean(apic_v, axis=1) # shape: [num_times, num_affs, num_trials]
+
+        apic_v_base_trace = apic_v[:,0:1,:]
         apic_v_delta = np.mean(apic_v[t_start:t_end, :, :] - apic_v_base_trace[t_start:t_end, :, :], axis=-1)  # shape: [t, num_affs]
         if attr == 'peak':
             EPSP_array = np.max(apic_v_delta , axis=0)  # [num_affs]
@@ -229,9 +252,10 @@ def full_nonlinearity_visualization(exp_list, idx_list, rec_loc_list, attr_list,
     exp, idx, rec_loc, attr = exp_list[0], idx_list[0], rec_loc_list[0], attr_list[0]
 
     data_dict = {}
+    required_vars = _required_vars_for_rec_loc(rec_loc)
     for epoch_idx in range(num_epochs):
         epoch_path = exp + '/' + str(idx) + '/' + str(epoch_idx + 1) + '/'
-        data_dict[epoch_idx] = load_data(epoch_path)
+        data_dict[epoch_idx] = load_data(epoch_path, required_vars=required_vars)
 
     EPSP_array_list = []
     
@@ -479,9 +503,9 @@ def batch_nonlinearity_analysis(prefix, filename_template, anal_loc_list, rec_lo
     for anal_loc in anal_loc_list:
         rec_loc_list = rec_loc_list_map.get(anal_loc, ['dend'])
         
-        for attr in ['area']:
-            for rec_loc in rec_loc_list:
-                for range_idx in [0, 1, 2]:
+        for range_idx in [0, 1, 2]:
+            for attr in ['area']:
+                for rec_loc in rec_loc_list:
                     task_params = (
                         prefix, filename_template, anal_loc, rec_loc, attr, range_idx,
                         num_epochs, iter_start_idx, iter_end_idx, iter_step
