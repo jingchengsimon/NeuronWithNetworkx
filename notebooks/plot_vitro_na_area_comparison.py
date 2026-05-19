@@ -18,12 +18,22 @@ import numpy as np
 
 SYN_NUM_LIST = np.arange(0, 72 + 1, 2)
 RANGE_LABELS = {0: "Proximal", 1: "Medium", 2: "Distal"}
-RANGE_COLORS = {
+RANGE_COLORS_BASAL = {
     0: (8 / 255, 48 / 255, 107 / 255),
     1: (31 / 255, 119 / 255, 180 / 255),
     2: (120 / 255, 200 / 255, 255 / 255),
 }
+RANGE_COLORS_APICAL = {
+    0: (100 / 255, 20 / 255, 20 / 255),
+    1: (214 / 255, 39 / 255, 40 / 255),
+    2: (255 / 255, 120 / 255, 120 / 255),
+}
 VAL_CTR = 0.0
+
+
+def color_for_range(region: str, range_idx: int):
+    color_map = RANGE_COLORS_APICAL if region == "apical" else RANGE_COLORS_BASAL
+    return color_map.get(range_idx, "0.3")
 
 
 def find_default_pkl() -> Path:
@@ -138,6 +148,14 @@ def mark_missing(ax: plt.Axes, message: str = "missing data") -> None:
     )
 
 
+def add_row_group_title(fig: plt.Figure, axes_row: np.ndarray, title: str) -> None:
+    """Place a row title centered above the clustered/distributed subplots."""
+    left = axes_row[0].get_position().x0
+    right = axes_row[1].get_position().x1
+    y = axes_row[0].get_position().y1 + 0.018
+    fig.text((left + right) / 2, y, title, ha="center", va="bottom", fontsize=12)
+
+
 def plot_condition_panel(
     ax: plt.Axes,
     data: dict[str, object],
@@ -152,7 +170,7 @@ def plot_condition_panel(
         if matrix is None:
             continue
         mean, sem = mean_and_sem(matrix)
-        color = RANGE_COLORS.get(range_idx, "0.3")
+        color = color_for_range(region, range_idx)
         ax.plot(SYN_NUM_LIST, mean, color=color, linewidth=2.5, label=RANGE_LABELS.get(range_idx))
         ax.fill_between(SYN_NUM_LIST, mean - sem, mean + sem, color=color, alpha=0.2)
         plotted = True
@@ -176,7 +194,7 @@ def plot_ratio_panel(
         if clus is None or distr is None:
             continue
         mean, sem = ratio_mean_and_sem(clus, distr)
-        color = RANGE_COLORS.get(range_idx, "0.3")
+        color = color_for_range(region, range_idx)
         ax.plot(SYN_NUM_LIST, mean, color=color, linewidth=2.5, label=RANGE_LABELS.get(range_idx))
         ax.fill_between(SYN_NUM_LIST, mean - sem, mean + sem, color=color, alpha=0.2)
         plotted = True
@@ -191,28 +209,64 @@ def build_figure(
     clus_prefix: str = "vitro_N+A",
     distr_prefix: str = "vitro_N+A_distr",
 ) -> plt.Figure:
-    fig, axes = plt.subplots(2, 3, figsize=(12, 7), sharex=True)
+    fig, axes = plt.subplots(4, 3, figsize=(12, 12), sharex=True)
 
     row_specs = [
-        ("basal", "dend", "Dendritic area", "Voltage Integral (mV·ms)", (-0.5, 9.0)),
-        ("basal", "soma", "Soma area", "Voltage Integral (mV·ms)", (-0.025, 0.45)),
+        (
+            "basal",
+            "dend",
+            "Dendritic EPSP integral on basal dendrites",
+            "Voltage Integral (mV·ms)",
+            (-0.5, 9.0),
+            False,
+            "",
+        ),
+        (
+            "basal",
+            "soma",
+            "Soma",
+            "Voltage Integral (mV·ms)",
+            (-0.025, 0.45),
+            True,
+            "Comparison of soma EPSP integral between\nsynaptic distribution patterns on basal dendrites",
+        ),
+        (
+            "apical",
+            "dend",
+            "Dendritic EPSP integral on apical dendrites",
+            "Voltage Integral (mV·ms)",
+            (-0.5, 9.0),
+            False,
+            "",
+        ),
+        (
+            "apical",
+            "soma",
+            "Soma",
+            "Voltage Integral (mV·ms)",
+            (-0.025, 0.45),
+            True,
+            "Comparison of soma EPSP integral between\nsynaptic distribution patterns on apical dendrites",
+        ),
     ]
-    col_titles = ["Clustered", "Distributed", "(Clus - Distr) / (Clus + Distr)"]
 
-    for row_idx, (region, rec_loc, row_title, ylabel, ylim) in enumerate(row_specs):
+    for row_idx, (region, rec_loc, row_title, ylabel, ylim, do_comparison, comparison_title) in enumerate(row_specs):
         plot_condition_panel(axes[row_idx, 0], data, clus_prefix, region, rec_loc, ranges)
         plot_condition_panel(axes[row_idx, 1], data, distr_prefix, region, rec_loc, ranges)
-        plot_ratio_panel(axes[row_idx, 2], data, region, rec_loc, ranges, clus_prefix, distr_prefix)
+        style_axis(axes[row_idx, 0], "Clustered", ylabel, ylim)
+        style_axis(axes[row_idx, 1], "Distributed", ylabel, ylim)
 
-        for col_idx, col_title in enumerate(col_titles):
-            title = f"{row_title} - {col_title}"
-            axis_ylim = (-0.4, 0.3) if col_idx == 2 else ylim
-            axis_ylabel = "Response ratio" if col_idx == 2 else ylabel
-            style_axis(axes[row_idx, col_idx], title, axis_ylabel, axis_ylim)
+        if do_comparison:
+            plot_ratio_panel(axes[row_idx, 2], data, region, rec_loc, ranges, clus_prefix, distr_prefix)
+            style_axis(axes[row_idx, 2], comparison_title, "Response ratio", (-0.4, 0.3))
+        else:
+            axes[row_idx, 2].axis("off")
 
     axes[0, 0].legend(loc="upper left", frameon=False, fontsize=9)
     fig.suptitle("Vitro N+A Area Nonlinearity: Clustered vs Distributed", fontsize=15)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.95), h_pad=2.6, w_pad=2.0)
+    for row_idx, (_, _, row_title, *_rest) in enumerate(row_specs):
+        add_row_group_title(fig, axes[row_idx, :], row_title)
     return fig
 
 
