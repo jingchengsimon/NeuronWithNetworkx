@@ -1,15 +1,24 @@
 # Ignore history directory
 .history/
 *.pyc
+__pycache__/
 
 # 忽略 log 文件
 *.log
 
-# 忽略 Jupyter 检查点
+# Jupyter
 .ipynb_checkpoints/
-
-*.zip
 *.ipynb
 
-# 忽略大文件，比如输出结果文件
-BiophysInspectSimplified.ipynb
+# 分析脚本 1 导出的全局变量备份（体积大，仅本地/远端保留）
+*.pkl
+epsps_backup_*.pkl
+globals_backup_*.pkl
+
+*.zip
+
+# macOS
+.DS_Store
+
+# 忽略大文件，比如输出结果文件（已由 *.ipynb 覆盖，保留作说明）
+# BiophysInspectSimplified.ipynb
