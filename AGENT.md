@@ -16,10 +16,11 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 ```
 .
-├── L5b_simulation.py          # 主入口：CellWithNetworkx 类 + CLI + 并行调度
+├── L5b_simulation.py          # 主入口：CLI + 并行调度
 ├── modelFile/                 # 形态 (cell1.asc/swc)、hoc 模板、AMPANMDA.json
 ├── mod/                       # NEURON mechanism（编译后 .so/.dll，源码未纳入）
 ├── utils/
+│   ├── cell_with_networkx.py  # CellWithNetworkx 类 + h.run() + 输出保存
 │   ├── add_inputs_utils.py    # 背景 / 聚类输入的突触创建与 spike train 注入
 │   ├── generate_pink_noise.py # 1/f pink noise 生成器
 │   ├── generate_stim_utils.py # preunit→cluster 映射 + VecStim 刺激生成

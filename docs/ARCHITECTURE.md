@@ -5,24 +5,26 @@
 ## 1  模块依赖图
 
 ```
-L5b_simulation.py (主入口)
+L5b_simulation.py (CLI + 并行调度)
   │
-  ├── utils/graph_utils.py           ← 形态 → DiG, branch order
-  ├── utils/distance_utils.py        ← cable distance (递归)
-  ├── utils/add_inputs_utils.py      ← 突触创建 + spike train 注入
-  │     ├── utils/synapses_models.py   ← AMPANMDA wrapper
-  │     ├── utils/generate_pink_noise.py ← 1/f noise (纯 numpy)
-  │     └── utils/replay_background_spikes.py ← replay spike maps
-  ├── utils/generate_stim_utils.py   ← preunit 映射 + VecStim 生成
-  ├── utils/replay_layout_from_csv.py ← replay 突触布局
-  ├── utils/nmda_detection_utils.py  ← segment NMDA spike rate
-  └── utils/visualize_utils.py       ← 可视化 (不在仿真路径中)
+  └── utils/cell_with_networkx.py    ← CellWithNetworkx, h.run(), 输出保存
+        ├── utils/graph_utils.py           ← 形态 → DiG, branch order
+        ├── utils/distance_utils.py        ← cable distance (递归)
+        ├── utils/add_inputs_utils.py      ← 突触创建 + spike train 注入
+        │     ├── utils/synapses_models.py   ← AMPANMDA wrapper
+        │     ├── utils/generate_pink_noise.py ← 1/f noise (纯 numpy)
+        │     └── utils/replay_background_spikes.py ← replay spike maps
+        ├── utils/generate_stim_utils.py   ← preunit 映射 + VecStim 生成
+        ├── utils/replay_layout_from_csv.py ← replay 突触布局
+        ├── utils/nmda_detection_utils.py  ← segment NMDA spike rate
+        └── utils/visualize_utils.py       ← 可视化 (不在仿真路径中)
 ```
 
 ### 依赖规则
 
 - `generate_pink_noise.py` 和 `generate_stim_utils.py` 是 **纯计算模块**，不 import NEURON。
-- `add_inputs_utils.py` 是唯一同时接触 NEURON 对象和 DataFrame 的模块。
+- `cell_with_networkx.py` 持有 `CellWithNetworkx`、调用 `h.run()`、负责输出保存，并协调各 utility 模块。
+- `add_inputs_utils.py` 负责创建/连接输入相关 NEURON 对象和 DataFrame 写入，但不调用 `h.run()`。
 - `replay_*.py` 模块仅读取 CSV，不生成新的随机数。
 - `graph_utils.py` 和 `distance_utils.py` 只操作形态信息，不接触突触。
 

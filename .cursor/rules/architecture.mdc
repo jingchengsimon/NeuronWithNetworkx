@@ -10,7 +10,8 @@ alwaysApply: true
 
 | Module | Responsibility | May NOT do |
 |--------|---------------|------------|
-| `L5b_simulation.py` | Cell class, CLI, orchestration, `h.run()` | Generate pink noise directly |
+| `L5b_simulation.py` | CLI, parameter expansion, process orchestration | Define Cell internals, call `h.run()`, generate pink noise directly |
+| `utils/cell_with_networkx.py` | Cell class, morphology/graph setup, synapse layout, input orchestration, `h.run()`, output saving | Generate pink noise directly |
 | `add_inputs_utils.py` | Create synapses, attach spike trains | Call `h.run()`, modify graph |
 | `generate_stim_utils.py` | `generate_indices`, `generate_vecstim` | Touch NEURON objects |
 | `generate_pink_noise.py` | `make_noise()` — pure numpy | Import NEURON |

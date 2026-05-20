@@ -40,7 +40,7 @@ Key CLI arguments (see `python L5b_simulation.py --help` for full list):
 
 ```
 .
-├── L5b_simulation.py              # Main entry: cell class, CLI, parallel scheduling
+├── L5b_simulation.py              # Main entry: CLI and parallel scheduling
 │
 ├── modelFile/
 │   ├── cell1.asc / cell1.swc      # Reconstructed L5PN morphology
@@ -54,6 +54,7 @@ Key CLI arguments (see `python L5b_simulation.py --help` for full list):
 │   └── x86_64/ or arm64/          # Compiled mechanisms (.so / .dll)
 │
 ├── utils/                          # Core utility modules (see §Utility Modules below)
+│   ├── cell_with_networkx.py       # CellWithNetworkx implementation
 ├── utils_anal/                     # Post-hoc analysis scripts
 ├── utils_viz/                      # Visualization & figure-generation scripts
 │
@@ -69,7 +70,7 @@ Key CLI arguments (see `python L5b_simulation.py --help` for full list):
 
 ## Simulation Pipeline
 
-`L5b_simulation.py` contains the `CellWithNetworkx` class, which executes the following pipeline. **The order of steps 4a → 4b → 4c is immutable** — inhibitory inputs track excitatory activity and must be generated last.
+`utils/cell_with_networkx.py` contains the `CellWithNetworkx` class, which executes the following pipeline. `L5b_simulation.py` is the CLI and parallel-scheduling entry point. **The order of steps 4a → 4b → 4c is immutable** — inhibitory inputs track excitatory activity and must be generated last.
 
 ```
 Step 1: __init__()
@@ -108,6 +109,10 @@ The `__main__` block sweeps parameter combinations (`sec_type × distance_to_roo
 ---
 
 ## Utility Modules (`utils/`)
+
+### `cell_with_networkx.py` — Cell Class and Simulation Runner
+
+Defines `CellWithNetworkx`: morphology loading, graph construction, synapse placement, cluster assignment, input orchestration, `h.run()`, and output serialization.
 
 ### `add_inputs_utils.py` — Synapse Creation & Spike Train Injection
 
