@@ -1,7 +1,12 @@
 # Ignore history directory
 .history/
 # Python cache files
+__pycache__/
+*/__pycache__/
 **/__pycache__/
+*.pyc
+*.pyo
+*.pyd
 **/*.py[cod]
 
 # 忽略 log 文件
