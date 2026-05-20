@@ -616,7 +616,7 @@ class CellWithNetworkx:
     def add_inputs(self, folder_path, simu_condition, input_ratio_basal_apic, bg_exc_channel_type,
                    initW, num_func_group, inh_delay, num_trials,
                    use_fixedW=False, fixedW=0.0004, expected=False,
-                   aff_mode='linear', iter_step=2):
+                   aff_mode='linear', aff_list=None, iter_step=2):
         
         self.input_ratio_basal_apic = input_ratio_basal_apic
         self.bg_exc_channel_type = bg_exc_channel_type
@@ -692,6 +692,15 @@ class CellWithNetworkx:
             self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
         elif aff_mode == 'full':
             self.num_activated_preunit_list = [self.num_preunit]
+        elif aff_mode == 'custom':
+            if aff_list is None or len(aff_list) == 0:
+                raise ValueError('aff_list must be provided when aff_mode is custom')
+            invalid_aff = [n for n in aff_list if n < 0 or n > self.num_preunit]
+            if invalid_aff:
+                raise ValueError(
+                    f'aff_list contains values outside valid range 0..{self.num_preunit}: {invalid_aff}'
+                )
+            self.num_activated_preunit_list = list(aff_list)
         else:
             raise ValueError(f'Unknown aff_mode: {aff_mode}')
 

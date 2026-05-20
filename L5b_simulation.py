@@ -79,9 +79,13 @@ def create_parser():
                         help='Use expected/linear-sum cluster stimulus logic. '
                              'If set, iter_step is forced to 1 in add_inputs (default: False)')
     parser.add_argument('--aff_mode', type=str, default='linear',
-                        choices=['linear', 'curve', 'full'],
+                        choices=['linear', 'curve', 'full', 'custom'],
                         help='Activation mode across preunits: linear uses range(0, N+1, iter_step); '
-                             'curve uses dense first then sparse increments; full runs only N preunits (default: linear)')
+                             'curve uses dense first then sparse increments; full runs only N preunits; '
+                             'custom uses aff_list as the within-run aff axis (default: linear)')
+    parser.add_argument('--aff_list', type=int, nargs='+', default=None,
+                        help='Custom activated-preunit counts for aff_mode=custom, e.g. --aff_list 4 24 48 72. '
+                             'This list is used within each run and does not expand parameter combinations.')
     parser.add_argument('--iter_step', type=int, default=2,
                         help='Step size for aff_mode linear/curve. Ignored by full; forced to 1 when --expected is set (default: 2)')
     parser.add_argument('--epoch_mode', type=str, default='sing',
@@ -227,6 +231,7 @@ def build_cell(args):
     with_global_rec = get_param('with_global_rec')
     expected = get_param('expected')
     aff_mode = get_param('aff_mode')
+    aff_list = get_param('aff_list')
     iter_step = get_param('iter_step')
     epoch_mode = get_param('epoch_mode')
     num_epochs = get_param('num_epochs')
@@ -286,7 +291,7 @@ def build_cell(args):
         'number of connection per preunit': num_conn_per_preunit, 'number of synapses per cluster': num_syn_per_clus,
         'number of trials': num_trials, 'syn_pos_seed': syn_pos_seed,
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
-        'expected': expected, 'aff_mode': aff_mode, 'iter_step': iter_step,
+        'expected': expected, 'aff_mode': aff_mode, 'aff_list': aff_list, 'iter_step': iter_step,
         'effective_iter_step': 1 if expected else iter_step,
         'epoch_mode': epoch_mode,
         'num_epochs': num_epochs,
@@ -318,7 +323,7 @@ def build_cell(args):
     cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
                      bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials,
                      use_fixedW=use_fixedW, fixedW=fixedW,
-                     expected=expected, aff_mode=aff_mode, iter_step=iter_step)
+                     expected=expected, aff_mode=aff_mode, aff_list=aff_list, iter_step=iter_step)
 
 def run_processes(args_list, epoch):
     """Run multiple processes with different parameter sets"""
