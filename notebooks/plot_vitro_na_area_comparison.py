@@ -2,8 +2,9 @@
 """Plot vitro N+A area curves from 1_sing_clus_analysis pkl output.
 
 The figure mirrors the notebook's Fig 1 data convention but keeps only the
-area metric. Rows are dendritic and somatic recordings; columns are clustered,
-distributed, and the clustered-vs-distributed ratio.
+area metric. Rows are dendritic and compartment recordings (basal soma,
+apical nexus from apic_v); columns are clustered, distributed, and the
+clustered-vs-distributed ratio.
 """
 
 from __future__ import annotations
@@ -78,30 +79,42 @@ def get_matrix(
     prefix: str,
     region: str,
     metric: str,
-    rec_loc: str,
     range_idx: int,
+    rec_loc: str,
+    *,
+    fallback_rec_locs: tuple[str, ...] = (),
 ) -> np.ndarray | None:
     """Return an epoch-by-synapse matrix when available.
 
+    Uses exactly one target rec_loc per row (basal=soma, apical=nexus).
+    fallback_rec_locs is only for apical rows on older pkls that still store soma.
     Older notebook backups sometimes only contain the averaged array; in that
     case this returns a single-row matrix so the plotting path still works.
     """
-    key = matrix_key(prefix, region, metric, rec_loc, range_idx)
-    if key in data:
-        arr = np.asarray(data[key], dtype=float)
-    else:
-        key = array_key(prefix, region, metric, rec_loc, range_idx)
-        if key not in data:
-            print(f"Warning: missing {key}")
-            return None
-        arr = np.asarray(data[key], dtype=float)[None, :]
+    for candidate in (rec_loc, *fallback_rec_locs):
+        key = matrix_key(prefix, region, metric, candidate, range_idx)
+        if key in data:
+            arr = np.asarray(data[key], dtype=float)
+        else:
+            key = array_key(prefix, region, metric, candidate, range_idx)
+            if key not in data:
+                continue
+            arr = np.asarray(data[key], dtype=float)[None, :]
 
-    if arr.ndim == 1:
-        arr = arr[None, :]
-    if arr.shape[-1] != len(SYN_NUM_LIST):
-        print(f"Warning: {key} has unexpected shape {arr.shape}; expected 37 columns.")
-        return None
-    return arr
+        if arr.ndim == 1:
+            arr = arr[None, :]
+        if arr.shape[-1] != len(SYN_NUM_LIST):
+            print(f"Warning: {key} has unexpected shape {arr.shape}; expected 37 columns.")
+            return None
+        if candidate != rec_loc:
+            print(
+                f"Note: using fallback {key} "
+                f"(preferred {matrix_key(prefix, region, metric, rec_loc, range_idx)})"
+            )
+        return arr
+
+    print(f"Warning: missing {matrix_key(prefix, region, metric, rec_loc, range_idx)}")
+    return None
 
 
 def mean_and_sem(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -163,10 +176,14 @@ def plot_condition_panel(
     region: str,
     rec_loc: str,
     ranges: list[int],
+    *,
+    fallback_rec_locs: tuple[str, ...] = (),
 ) -> None:
     plotted = False
     for range_idx in ranges:
-        matrix = get_matrix(data, prefix, region, "area", rec_loc, range_idx)
+        matrix = get_matrix(
+            data, prefix, region, "area", range_idx, rec_loc, fallback_rec_locs=fallback_rec_locs
+        )
         if matrix is None:
             continue
         mean, sem = mean_and_sem(matrix)
@@ -186,11 +203,22 @@ def plot_ratio_panel(
     ranges: list[int],
     clus_prefix: str,
     distr_prefix: str,
+    *,
+    fallback_rec_locs: tuple[str, ...] = (),
 ) -> None:
+    """Plot mean (clus - distr) / (clus + distr) per synapse count.
+
+    Uses the same rec_loc (and optional fallback) as the clustered/distributed
+    panels in that row so the comparison tracks the root curves beside it.
+    """
     plotted = False
     for range_idx in ranges:
-        clus = get_matrix(data, clus_prefix, region, "area", rec_loc, range_idx)
-        distr = get_matrix(data, distr_prefix, region, "area", rec_loc, range_idx)
+        clus = get_matrix(
+            data, clus_prefix, region, "area", range_idx, rec_loc, fallback_rec_locs=fallback_rec_locs
+        )
+        distr = get_matrix(
+            data, distr_prefix, region, "area", range_idx, rec_loc, fallback_rec_locs=fallback_rec_locs
+        )
         if clus is None or distr is None:
             continue
         mean, sem = ratio_mean_and_sem(clus, distr)
@@ -211,10 +239,14 @@ def build_figure(
 ) -> plt.Figure:
     fig, axes = plt.subplots(4, 3, figsize=(12, 12), sharex=True)
 
+    # rec_loc per row — only apical root changes (soma -> nexus); basal stays soma.
+    # pkl keys must match 1_sing_clus_analysis rec_loc_list_map:
+    #   {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}
     row_specs = [
         (
             "basal",
             "dend",
+            (),
             "Dendritic EPSP integral on basal dendrites",
             "Voltage Integral (mV·ms)",
             (-0.5, 9.0),
@@ -224,6 +256,7 @@ def build_figure(
         (
             "basal",
             "soma",
+            (),
             "Soma",
             "Voltage Integral (mV·ms)",
             (-0.025, 0.45),
@@ -233,6 +266,7 @@ def build_figure(
         (
             "apical",
             "dend",
+            (),
             "Dendritic EPSP integral on apical dendrites",
             "Voltage Integral (mV·ms)",
             (-0.5, 9.0),
@@ -241,23 +275,37 @@ def build_figure(
         ),
         (
             "apical",
-            "soma",
-            "Soma",
+            "nexus",
+            ("soma",),
+            "Nexus",
             "Voltage Integral (mV·ms)",
             (-0.025, 0.45),
             True,
-            "Comparison of soma EPSP integral between\nsynaptic distribution patterns on apical dendrites",
+            "Comparison of nexus EPSP integral between\nsynaptic distribution patterns on apical dendrites",
         ),
     ]
 
-    for row_idx, (region, rec_loc, row_title, ylabel, ylim, do_comparison, comparison_title) in enumerate(row_specs):
-        plot_condition_panel(axes[row_idx, 0], data, clus_prefix, region, rec_loc, ranges)
-        plot_condition_panel(axes[row_idx, 1], data, distr_prefix, region, rec_loc, ranges)
+    for row_idx, (region, rec_loc, fallback, row_title, ylabel, ylim, do_comparison, comparison_title) in enumerate(row_specs):
+        plot_condition_panel(
+            axes[row_idx, 0], data, clus_prefix, region, rec_loc, ranges, fallback_rec_locs=fallback
+        )
+        plot_condition_panel(
+            axes[row_idx, 1], data, distr_prefix, region, rec_loc, ranges, fallback_rec_locs=fallback
+        )
         style_axis(axes[row_idx, 0], "Clustered", ylabel, ylim)
         style_axis(axes[row_idx, 1], "Distributed", ylabel, ylim)
 
         if do_comparison:
-            plot_ratio_panel(axes[row_idx, 2], data, region, rec_loc, ranges, clus_prefix, distr_prefix)
+            plot_ratio_panel(
+                axes[row_idx, 2],
+                data,
+                region,
+                rec_loc,
+                ranges,
+                clus_prefix,
+                distr_prefix,
+                fallback_rec_locs=fallback,
+            )
             style_axis(axes[row_idx, 2], comparison_title, "Response ratio", (-0.4, 0.3))
         else:
             axes[row_idx, 2].axis("off")
@@ -265,14 +313,14 @@ def build_figure(
     axes[0, 0].legend(loc="upper left", frameon=False, fontsize=9)
     fig.suptitle("Vitro N+A Area Nonlinearity: Clustered vs Distributed", fontsize=15)
     fig.tight_layout(rect=(0, 0, 1, 0.95), h_pad=2.6, w_pad=2.0)
-    for row_idx, (_, _, row_title, *_rest) in enumerate(row_specs):
+    for row_idx, (_, _rec, _fb, row_title, *_rest) in enumerate(row_specs):
         add_row_group_title(fig, axes[row_idx, :], row_title)
     return fig
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot vitro N+A dend/soma area curves and clus-distr ratios from EPSP pkl."
+        description="Plot vitro N+A dend/soma(nexus) area curves and clus-distr ratios from EPSP pkl."
     )
     parser.add_argument(
         "--pkl",

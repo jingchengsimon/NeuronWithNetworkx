@@ -550,18 +550,18 @@ iter_step, num_epochs = 1, 50
 print("🚨 Running in SAFE MODE to prevent system restart")
 print("💡 To enable parallel processing, set parallel=True (use with caution)")
 
-# batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
-#                             {'basal': ['dend', 'nexus'], 'apical': ['dend', 'nexus']}, num_epochs)
-
-# batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
-#                             {'basal': ['dend', 'nexus'], 'apical': ['dend', 'nexus']}, num_epochs)
-
-# 4. Vivo N+A Clustered & Distributed
-batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
+batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
+batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+
+# # 4. Vivo N+A Clustered & Distributed
+# batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
+#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+
+# batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
+#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
 
 # # 2. Vitro AMPA Clustered & Distributed
