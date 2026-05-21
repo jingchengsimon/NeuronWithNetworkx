@@ -2,11 +2,14 @@
 """
 AP and Ca spike rate analysis from soma_v_array / apic_v_array.
 
-Ca spikes (apic_v): same criterion as NMDA spikes via utils.nmda_detection_utils
-  (V > -40 mV continuously for >= 26 ms).
+Ca spikes (apic_v): NMDA-style criterion (V > -40 mV for >= 26 ms).
+AP spikes (soma_v): upward crossings of -10 mV with positive first derivative.
 
-AP spikes (soma_v): upward crossings of -10 mV with positive first derivative
-  (NEURON-style threshold crossing).
+Default figure layout (fig1-style):
+  - 2 rows x 2 columns: rows AP / Ca; cols clus / distr
+  - Each panel: basal range0/1/2 bars + apical range0/1/2 bars
+  - Colors by distance range (blue basal, red apical gradients)
+  - Only full cluster activation (default aff_label=72)
 """
 
 from __future__ import annotations
@@ -20,9 +23,14 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.patches as mpatches  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from matplotlib.legend_handler import HandlerTuple  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
@@ -38,10 +46,29 @@ from utils.nmda_detection_utils import (
 DEFAULT_AP_THRESH_MV = -10.0
 DEFAULT_CA_V_THRESH_MV = DEFAULT_V_THRESH_MV
 DEFAULT_CA_MIN_DURATION_MS = DEFAULT_MIN_DURATION_MS
+DEFAULT_AFF_LABEL_FULL = 72
+
+
+def _range_color_lists() -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]]]:
+    """Match utils_viz/fig1_1.py basal blue / apical red gradients."""
+    blue_start = (15, 60, 90)
+    blue_mid = (31, 119, 180)
+    blue_end = (120, 200, 255)
+    color_list_basal = [
+        tuple(np.array([blue_start, blue_mid, blue_end][i]) / 255.0) for i in range(3)
+    ]
+
+    red_start = (100, 20, 20)
+    red_mid = (214, 39, 40)
+    red_end = (255, 120, 120)
+    color_list_apical = [
+        tuple(np.array([red_start, red_mid, red_end][i]) / 255.0) for i in range(3)
+    ]
+    return color_list_basal, color_list_apical
 
 
 # ---------------------------
-# IO helpers (aligned with visualize_soma_peak.py)
+# IO helpers
 # ---------------------------
 def _load_run_folder(folder: str) -> tuple[np.ndarray | None, np.ndarray | None, dict | None]:
     soma_path = os.path.join(folder, "soma_v_array.npy")
@@ -61,7 +88,6 @@ def _load_run_folder(folder: str) -> tuple[np.ndarray | None, np.ndarray | None,
 
 
 def _normalize_trace_shape(trace: np.ndarray) -> np.ndarray:
-    """Normalize voltage array to (T, num_stim, num_aff, num_trials)."""
     if trace.ndim == 4:
         return trace
     if trace.ndim == 3:
@@ -82,10 +108,6 @@ def _sim_duration_ms(simu_info: dict) -> float:
 
 
 def _aff_activation_labels(simu_info: dict, n_aff: int) -> list[int]:
-    """
-    Map aff axis index -> number of activated preunits.
-    Prefer explicit aff_list saved by L5b_simulation.py.
-    """
     if "aff_list" in simu_info and simu_info["aff_list"] is not None:
         labels = [int(x) for x in simu_info["aff_list"]]
         if len(labels) == n_aff:
@@ -113,20 +135,25 @@ def _aff_activation_labels(simu_info: dict, n_aff: int) -> list[int]:
     return labels
 
 
+def _resolve_aff_index_for_label(simu_info: dict, n_aff: int, aff_label: int) -> int:
+    labels = _aff_activation_labels(simu_info, n_aff)
+    if aff_label in labels:
+        return labels.index(aff_label)
+    if aff_label == labels[-1]:
+        return len(labels) - 1
+    raise ValueError(
+        f"aff_label={aff_label} not found in activation list {labels}. "
+        "Use --aff-label matching simulation_params.json aff_list."
+    )
+
+
 # ---------------------------
 # Spike detection
 # ---------------------------
-def count_ap_spikes(
-    v_mV: np.ndarray,
-    ap_thresh_mV: float = DEFAULT_AP_THRESH_MV,
-) -> int:
-    """
-    Count AP events as upward threshold crossings with positive first derivative.
-    """
+def count_ap_spikes(v_mV: np.ndarray, ap_thresh_mV: float = DEFAULT_AP_THRESH_MV) -> int:
     v = np.asarray(v_mV, dtype=np.float64).reshape(-1)
     if v.size < 2:
         return 0
-
     count = 0
     for i in range(1, v.size):
         dv = v[i] - v[i - 1]
@@ -153,7 +180,6 @@ def compute_ca_spike_rate_hz(
     v_thresh_mV: float = DEFAULT_CA_V_THRESH_MV,
     min_duration_ms: float = DEFAULT_CA_MIN_DURATION_MS,
 ) -> float:
-    """Ca spikes on apic_v use the NMDA-style supra-threshold run criterion."""
     return compute_nmda_spike_rate_hz(
         v_mV,
         dt_s,
@@ -163,21 +189,17 @@ def compute_ca_spike_rate_hz(
     )
 
 
-def extract_spike_rates_from_folder(
+def extract_spike_rates_at_aff(
     folder: str,
+    aff_idx: int,
     stim_idx: int = 0,
     ap_thresh_mV: float = DEFAULT_AP_THRESH_MV,
     ca_v_thresh_mV: float = DEFAULT_CA_V_THRESH_MV,
     ca_min_duration_ms: float = DEFAULT_CA_MIN_DURATION_MS,
-) -> pd.DataFrame | None:
-    """
-    Per-trial AP and Ca spike rates for one run folder.
-    Returns long-form DataFrame with columns:
-      aff_idx, aff_label, trial, stim, spike_type, rate_hz
-    """
+) -> list[dict]:
     soma_raw, apic_raw, simu_info = _load_run_folder(folder)
     if simu_info is None:
-        return None
+        return []
 
     rows: list[dict] = []
     dur_ms = _sim_duration_ms(simu_info)
@@ -186,67 +208,49 @@ def extract_spike_rates_from_folder(
         soma = _normalize_trace_shape(soma_raw)
         dt_s = _dt_seconds_from_trace(soma, simu_info)
         n_stim, n_aff, n_trials = soma.shape[1], soma.shape[2], soma.shape[3]
+        if stim_idx >= n_stim or aff_idx >= n_aff:
+            return rows
         aff_labels = _aff_activation_labels(simu_info, n_aff)
-        if stim_idx < 0 or stim_idx >= n_stim:
-            raise IndexError(f"stim_idx={stim_idx} out of range for n_stim={n_stim}")
-
-        for aff_i, aff_label in enumerate(aff_labels):
-            for trial in range(n_trials):
-                trace = soma[:, stim_idx, aff_i, trial]
-                rate = compute_ap_spike_rate_hz(trace, dur_ms, ap_thresh_mV=ap_thresh_mV)
-                rows.append(
-                    dict(
-                        aff_idx=aff_i,
-                        aff_label=int(aff_label),
-                        trial=trial,
-                        stim=stim_idx,
-                        spike_type="ap",
-                        rate_hz=float(rate),
-                        n_events=int(count_ap_spikes(trace, ap_thresh_mV=ap_thresh_mV)),
-                    )
+        for trial in range(n_trials):
+            trace = soma[:, stim_idx, aff_idx, trial]
+            rows.append(
+                dict(
+                    aff_idx=aff_idx,
+                    aff_label=int(aff_labels[aff_idx]),
+                    trial=trial,
+                    spike_type="ap",
+                    rate_hz=float(compute_ap_spike_rate_hz(trace, dur_ms, ap_thresh_mV=ap_thresh_mV)),
                 )
+            )
 
     if apic_raw is not None:
         apic = _normalize_trace_shape(apic_raw)
         dt_s = _dt_seconds_from_trace(apic, simu_info)
         n_stim, n_aff, n_trials = apic.shape[1], apic.shape[2], apic.shape[3]
+        if stim_idx >= n_stim or aff_idx >= n_aff:
+            return rows
         aff_labels = _aff_activation_labels(simu_info, n_aff)
-        if stim_idx < 0 or stim_idx >= n_stim:
-            raise IndexError(f"stim_idx={stim_idx} out of range for n_stim={n_stim}")
-
-        for aff_i, aff_label in enumerate(aff_labels):
-            for trial in range(n_trials):
-                trace = apic[:, stim_idx, aff_i, trial]
-                rate = compute_ca_spike_rate_hz(
-                    trace,
-                    dt_s,
-                    dur_ms,
-                    v_thresh_mV=ca_v_thresh_mV,
-                    min_duration_ms=ca_min_duration_ms,
+        for trial in range(n_trials):
+            trace = apic[:, stim_idx, aff_idx, trial]
+            rows.append(
+                dict(
+                    aff_idx=aff_idx,
+                    aff_label=int(aff_labels[aff_idx]),
+                    trial=trial,
+                    spike_type="ca",
+                    rate_hz=float(
+                        compute_ca_spike_rate_hz(
+                            trace,
+                            dt_s,
+                            dur_ms,
+                            v_thresh_mV=ca_v_thresh_mV,
+                            min_duration_ms=ca_min_duration_ms,
+                        )
+                    ),
                 )
-                rows.append(
-                    dict(
-                        aff_idx=aff_i,
-                        aff_label=int(aff_label),
-                        trial=trial,
-                        stim=stim_idx,
-                        spike_type="ca",
-                        rate_hz=float(rate),
-                        n_events=int(
-                            count_nmda_spikes(
-                                trace,
-                                dt_s,
-                                v_thresh_mV=ca_v_thresh_mV,
-                                min_duration_ms=ca_min_duration_ms,
-                            )
-                        ),
-                    )
-                )
+            )
 
-    if not rows:
-        return None
-
-    return pd.DataFrame(rows)
+    return rows
 
 
 def _infer_base_root_from_clus_prefix(base_clus_invivo_prefix: str) -> str:
@@ -262,9 +266,7 @@ def _infer_base_root_from_clus_prefix(base_clus_invivo_prefix: str) -> str:
 
 def _exp_dir_from_base(base_clus_invivo_prefix: str, condition: str, suffix: str) -> str:
     base_root = _infer_base_root_from_clus_prefix(base_clus_invivo_prefix)
-    condition = condition.strip()
-    suffix = suffix.strip().lstrip("_")
-    return f"{base_root}_{condition}_invivo_{suffix}"
+    return f"{base_root}_{condition.strip()}_invivo_{suffix.strip().lstrip('_')}"
 
 
 def _find_epoch_folders_two_level(exp_dir: str) -> list[tuple[int, str]]:
@@ -279,223 +281,325 @@ def _find_epoch_folders_two_level(exp_dir: str) -> list[tuple[int, str]]:
     return out
 
 
-def build_spike_rate_dataframe(
-    base_clus_invivo_prefix: str,
-    suffixes: Iterable[str],
-    conditions: tuple[str, str] = ("clus", "distr"),
+def build_spike_rate_dataframe_across_ranges(
+    root_dir: str,
+    range_idxs: Iterable[int],
+    sec_types: Iterable[str] = ("basal", "apical"),
+    conditions: Iterable[str] = ("clus", "distr"),
+    suffix: str = "singclus_ap",
+    aff_label: int = DEFAULT_AFF_LABEL_FULL,
     stim_idx: int = 0,
-    ap_thresh_mV: float = DEFAULT_AP_THRESH_MV,
-    ca_v_thresh_mV: float = DEFAULT_CA_V_THRESH_MV,
-    ca_min_duration_ms: float = DEFAULT_CA_MIN_DURATION_MS,
 ) -> pd.DataFrame:
+    """
+    Scan {sec_type}_range{N}_clus_invivo_{suffix} for each range_idx and spat condition.
+    Only extract rates at aff_label (default 72 activated synapses).
+    """
     rows = []
-    for suffix in suffixes:
-        for cond in conditions:
-            exp_dir = _exp_dir_from_base(base_clus_invivo_prefix, cond, suffix)
-            epoch_folders = _find_epoch_folders_two_level(exp_dir)
-            if not epoch_folders:
-                continue
+    root_dir = root_dir.rstrip("/")
 
-            for epoch_idx, folder in epoch_folders:
-                rates_df = extract_spike_rates_from_folder(
-                    folder,
-                    stim_idx=stim_idx,
-                    ap_thresh_mV=ap_thresh_mV,
-                    ca_v_thresh_mV=ca_v_thresh_mV,
-                    ca_min_duration_ms=ca_min_duration_ms,
-                )
-                if rates_df is None or rates_df.empty:
+    for condition in conditions:
+        for sec_type in sec_types:
+            for range_idx in range_idxs:
+                base_prefix = f"{root_dir}/{sec_type}_range{range_idx}_clus_invivo_"
+                exp_dir = _exp_dir_from_base(base_prefix, condition, suffix)
+                epoch_folders = _find_epoch_folders_two_level(exp_dir)
+                if not epoch_folders:
                     continue
 
-                for _, r in rates_df.iterrows():
-                    rows.append(
-                        dict(
-                            epoch=epoch_idx,
-                            suffix=suffix,
-                            condition=cond,
-                            aff_idx=int(r["aff_idx"]),
-                            aff_label=int(r["aff_label"]),
-                            trial=int(r["trial"]),
-                            stim=int(r["stim"]),
-                            spike_type=str(r["spike_type"]),
-                            rate_hz=float(r["rate_hz"]),
-                            n_events=int(r["n_events"]),
-                            folder=folder,
-                        )
+                for epoch_idx, folder in epoch_folders:
+                    soma_raw, apic_raw, simu_info = _load_run_folder(folder)
+                    if simu_info is None:
+                        continue
+
+                    n_aff = None
+                    if soma_raw is not None:
+                        n_aff = _normalize_trace_shape(soma_raw).shape[2]
+                    elif apic_raw is not None:
+                        n_aff = _normalize_trace_shape(apic_raw).shape[2]
+                    if n_aff is None:
+                        continue
+
+                    try:
+                        aff_idx = _resolve_aff_index_for_label(simu_info, n_aff, aff_label)
+                    except ValueError:
+                        continue
+
+                    rate_rows = extract_spike_rates_at_aff(
+                        folder,
+                        aff_idx=aff_idx,
+                        stim_idx=stim_idx,
                     )
+                    for r in rate_rows:
+                        rows.append(
+                            dict(
+                                epoch=epoch_idx,
+                                suffix=suffix,
+                                condition=condition,
+                                sec_type=sec_type,
+                                range_idx=int(range_idx),
+                                aff_idx=int(r["aff_idx"]),
+                                aff_label=int(r["aff_label"]),
+                                trial=int(r["trial"]),
+                                spike_type=str(r["spike_type"]),
+                                rate_hz=float(r["rate_hz"]),
+                                folder=folder,
+                            )
+                        )
 
     df = pd.DataFrame(rows)
     if df.empty:
-        raise RuntimeError("No AP/Ca spike rates extracted. Check paths and recordings.")
+        raise RuntimeError(
+            "No AP/Ca spike rates extracted. Check root_dir, range_idxs, "
+            f"conditions={list(conditions)}, suffix={suffix}, aff_label={aff_label}."
+        )
     return df
 
 
-def _summarize_rates(df: pd.DataFrame) -> pd.DataFrame:
-    """Median rate and SEM across epochs and trials, per condition / aff / spike_type."""
-    grouped = (
-        df.groupby(["suffix", "condition", "spike_type", "aff_label", "aff_idx"], as_index=False)
+def summarize_rates_by_range(df: pd.DataFrame) -> pd.DataFrame:
+    """Median and SEM across epochs and trials."""
+    return (
+        df.groupby(
+            ["suffix", "condition", "spike_type", "sec_type", "range_idx", "aff_label"],
+            as_index=False,
+        )
         .agg(
             rate_median=("rate_hz", "median"),
             rate_sem=(
                 "rate_hz",
                 lambda s: float(np.std(s, ddof=1) / np.sqrt(len(s))) if len(s) > 1 else 0.0,
             ),
-            n_epochs=("epoch", "nunique"),
             n_samples=("rate_hz", "count"),
         )
     )
-    return grouped
 
 
-def plot_ap_ca_spike_rates_2x2(
+def _lookup_rate(
+    summary_df: pd.DataFrame,
+    spike_type: str,
+    sec_type: str,
+    range_idx: int,
+    condition: str,
+    suffix: str,
+) -> tuple[float, float]:
+    sub = summary_df[
+        (summary_df["spike_type"] == spike_type)
+        & (summary_df["sec_type"] == sec_type)
+        & (summary_df["range_idx"] == range_idx)
+        & (summary_df["condition"] == condition)
+        & (summary_df["suffix"] == suffix)
+    ]
+    if sub.empty:
+        return np.nan, np.nan
+    return float(sub["rate_median"].iloc[0]), float(sub["rate_sem"].iloc[0])
+
+
+def _draw_basal_apical_range_panel(
+    ax: plt.Axes,
+    summary_df: pd.DataFrame,
+    spike_type: str,
+    condition: str,
+    suffix: str,
+    range_idxs: list[int],
+    color_list_basal: list[tuple[float, float, float]],
+    color_list_apical: list[tuple[float, float, float]],
+) -> None:
+    """One subplot: 3 basal bars (left) + 3 apical bars (right), colored by range."""
+    width, col_gap = 1.0, 1.0
+    x_basal = np.arange(3) * width
+    x_apical = np.arange(3) * width + 3 * width + col_gap
+
+    mean_b, sem_b, mean_a, sem_a = [], [], [], []
+    for ri in range_idxs:
+        mb, sb = _lookup_rate(summary_df, spike_type, "basal", ri, condition, suffix)
+        ma, sa = _lookup_rate(summary_df, spike_type, "apical", ri, condition, suffix)
+        mean_b.append(mb)
+        sem_b.append(sb)
+        mean_a.append(ma)
+        sem_a.append(sa)
+
+    ax.bar(
+        x_basal,
+        mean_b,
+        yerr=sem_b,
+        width=width,
+        color=color_list_basal,
+        capsize=3,
+        edgecolor="none",
+    )
+    ax.bar(
+        x_apical,
+        mean_a,
+        yerr=sem_a,
+        width=width,
+        color=color_list_apical,
+        capsize=3,
+        edgecolor="none",
+    )
+
+    centers = [float(x_basal.mean()), float(x_apical.mean())]
+    ax.set_xticks(centers)
+    ax.set_xticklabels(["Basal", "Apical"])
+    ax.set_xlim(x_basal.min() - 0.5 * width, x_apical.max() + 0.5 * width)
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def plot_ap_ca_by_range_fig1_style(
     summary_df: pd.DataFrame,
     suffix: str,
-    aff_order: list[int] | None = None,
+    conditions: tuple[str, str] = ("clus", "distr"),
+    range_idxs: list[int] | None = None,
+    range_legend_labels: list[str] | None = None,
     figsize: tuple[float, float] = (8.0, 6.0),
-) -> tuple[plt.Figure, np.ndarray]:
+) -> plt.Figure:
     """
-    2x2 panels: rows = AP / Ca, cols = clus / distr.
-    x-axis: aff_label (activated synapse count), y-axis: spike rate (Hz).
+    2x2 panels: rows = AP / Ca; cols = clus / distr.
+    Each panel: 3 basal bars + gap + 3 apical bars; bar color = distance range.
     """
-    sdf = summary_df[summary_df["suffix"] == suffix].copy()
-    if sdf.empty:
-        raise ValueError(f"No summary rows for suffix={suffix}")
+    if range_idxs is None:
+        range_idxs = sorted(summary_df["range_idx"].unique().tolist())
+    if len(range_idxs) != 3:
+        raise ValueError(f"Expected 3 range indices, got {range_idxs}")
 
-    if aff_order is None:
-        aff_order = sorted(sdf["aff_label"].unique().tolist())
+    if range_legend_labels is None:
+        range_legend_labels = [f"range {r}" for r in range_idxs]
+
+    color_list_basal, color_list_apical = _range_color_lists()
+    cond_col = {"clus": 0, "distr": 1}
+    spike_row = {"ap": 0, "ca": 1}
+    cond_titles = {"clus": "clustered", "distr": "distributed"}
 
     fig, axes = plt.subplots(2, 2, figsize=figsize, sharey="row")
-    panel_map = {
-        ("ap", "clus"): axes[0, 0],
-        ("ap", "distr"): axes[0, 1],
-        ("ca", "clus"): axes[1, 0],
-        ("ca", "distr"): axes[1, 1],
-    }
-    titles = {
-        ("ap", "clus"): "AP — clustered",
-        ("ap", "distr"): "AP — distributed",
-        ("ca", "clus"): "Ca — clustered",
-        ("ca", "distr"): "Ca — distributed",
-    }
-    colors = {"clus": "tab:red", "distr": "tab:blue"}
 
-    x_pos = np.arange(len(aff_order), dtype=float)
-    width = 0.35
-
-    for spike_type in ("ap", "ca"):
-        for cond in ("clus", "distr"):
-            ax = panel_map[(spike_type, cond)]
-            sub = sdf[(sdf["spike_type"] == spike_type) & (sdf["condition"] == cond)]
-
-            means = []
-            sems = []
-            for aff in aff_order:
-                row = sub[sub["aff_label"] == aff]
-                if row.empty:
-                    means.append(np.nan)
-                    sems.append(np.nan)
-                else:
-                    means.append(float(row["rate_median"].iloc[0]))
-                    sems.append(float(row["rate_sem"].iloc[0]))
-
-            ax.bar(
-                x_pos,
-                means,
-                yerr=sems,
-                width=0.7,
-                color=colors.get(cond, "gray"),
-                alpha=0.75,
-                capsize=3,
-                edgecolor="none",
+    for spike_type, row in spike_row.items():
+        for condition in conditions:
+            if condition not in cond_col:
+                raise ValueError(f"Unknown spat condition {condition!r}; expected clus or distr.")
+            col = cond_col[condition]
+            ax = axes[row, col]
+            _draw_basal_apical_range_panel(
+                ax,
+                summary_df,
+                spike_type,
+                condition,
+                suffix,
+                range_idxs,
+                color_list_basal,
+                color_list_apical,
             )
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels([str(a) for a in aff_order])
-            ax.set_xlabel("Activated synapses")
-            ax.set_title(titles[(spike_type, cond)])
-            ax.grid(True, axis="y", alpha=0.25)
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
+            ax.set_title(f"{spike_type.upper()} — {cond_titles.get(condition, condition)}")
 
     axes[0, 0].set_ylabel("AP spike rate (Hz)")
     axes[1, 0].set_ylabel("Ca spike rate (Hz)")
-    fig.suptitle(f"Spike rate vs activation — suffix: {suffix}", y=1.02)
+
+    handles = [
+        (
+            mpatches.Patch(facecolor=color_list_basal[i], edgecolor="none"),
+            mpatches.Patch(facecolor=color_list_apical[i], edgecolor="none"),
+        )
+        for i in range(3)
+    ]
+    axes[0, 0].legend(
+        handles,
+        range_legend_labels,
+        handler_map={tuple: HandlerTuple(ndivide=None)},
+        handlelength=4,
+        handletextpad=0.2,
+        frameon=False,
+        loc="upper left",
+    )
+    aff_val = int(summary_df["aff_label"].iloc[0])
+    fig.suptitle(
+        f"Spike rate across distance ranges (aff={aff_val} synapses) — {suffix}",
+        y=1.02,
+    )
     fig.tight_layout()
-    return fig, axes
+    return fig
 
 
-def visualize_ap_ca_from_base(
-    base_clus_invivo_prefix: str,
-    suffixes: list[str],
+def visualize_ap_ca_across_ranges(
+    root_dir: str,
+    range_idxs: list[int],
     conditions: tuple[str, str] = ("clus", "distr"),
-    aff_order: list[int] | None = None,
+    suffix: str = "singclus_ap",
+    aff_label: int = DEFAULT_AFF_LABEL_FULL,
     stim_idx: int = 0,
-    save_dir: str | None = None,
+    save_path: str | None = None,
     fig_format: str = "pdf",
-    show: bool = True,
-) -> tuple[pd.DataFrame, pd.DataFrame, list[tuple[plt.Figure, str]]]:
-    raw_df = build_spike_rate_dataframe(
-        base_clus_invivo_prefix=base_clus_invivo_prefix,
-        suffixes=suffixes,
+    show: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, plt.Figure]:
+    raw_df = build_spike_rate_dataframe_across_ranges(
+        root_dir=root_dir,
+        range_idxs=range_idxs,
         conditions=conditions,
+        suffix=suffix,
+        aff_label=aff_label,
         stim_idx=stim_idx,
     )
-    summary_df = _summarize_rates(raw_df)
+    summary_df = summarize_rates_by_range(raw_df)
 
-    figures = []
-    for suffix in sorted(summary_df["suffix"].unique()):
-        fig, _ = plot_ap_ca_spike_rates_2x2(summary_df, suffix=suffix, aff_order=aff_order)
-        figures.append((fig, suffix))
+    fig = plot_ap_ca_by_range_fig1_style(
+        summary_df,
+        suffix=suffix,
+        conditions=conditions,
+        range_idxs=range_idxs,
+    )
 
-        if save_dir is not None:
+    if save_path is not None:
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
             os.makedirs(save_dir, exist_ok=True)
-            # infer anal_loc/range from prefix if possible
-            m = re.search(r"(basal|apical)_range(\d+)_clus_invivo", base_clus_invivo_prefix)
-            tag = f"{m.group(1)}_range{m.group(2)}" if m else "ap_ca"
-            out_name = f"{tag}_{suffix}_ap_ca_spike_rate.{fig_format}"
-            fig.savefig(os.path.join(save_dir, out_name), dpi=300, bbox_inches="tight")
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved {save_path}")
 
-        if show:
-            plt.show()
-        elif save_dir is not None:
-            plt.close(fig)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
-    return raw_df, summary_df, figures
+    return raw_df, summary_df, fig
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AP/Ca spike rate analysis from soma_v_array and apic_v_array."
+        description="AP/Ca spike rates at full activation, across distance ranges (fig1-style bars)."
     )
     parser.add_argument(
         "--root-dir",
         default="/G/results/simulation_singclus_supple_May26",
-        help="Directory containing <sec_type>_range<N>_clus_invivo_* experiment trees.",
-    )
-    parser.add_argument("--range-idx", type=int, default=0, help="Range index N in path names.")
-    parser.add_argument(
-        "--sec-type",
-        choices=["basal", "apical"],
-        default="basal",
-        help="Section type in experiment folder name.",
+        help="Parent directory with <sec_type>_range<N>_clus_invivo_<suffix> trees.",
     )
     parser.add_argument(
-        "--suffixes",
+        "--range-idxs",
         nargs="+",
-        default=["singclus_ap"],
+        type=int,
+        default=[0, 1, 2],
+        help="Distance-to-root indices (default: 0 1 2).",
+    )
+    parser.add_argument(
+        "--spat-conditions",
+        nargs="+",
+        choices=["clus", "distr"],
+        default=["clus", "distr"],
+        help="Spatial patterns to include (default: clus distr → 2x2 figure).",
+    )
+    parser.add_argument(
+        "--suffix",
+        default="singclus_ap",
         help="Channel suffix after invivo_, e.g. singclus_ap.",
     )
     parser.add_argument(
-        "--aff-order",
-        nargs="+",
+        "--aff-label",
         type=int,
-        default=None,
-        help="Optional x-axis order for aff labels, e.g. 4 24 48 72.",
+        default=DEFAULT_AFF_LABEL_FULL,
+        help="Activated synapse count to analyze (default: 72).",
     )
-    parser.add_argument("--stim-idx", type=int, default=0, help="Stimulus index along trace array.")
+    parser.add_argument("--stim-idx", type=int, default=0)
     parser.add_argument(
         "--output-dir",
         default="./results/ap_ca_spike",
-        help="Directory for saved figures and CSV summaries.",
+        help="Directory for figure and CSV output.",
     )
     parser.add_argument(
         "--format",
@@ -503,33 +607,38 @@ def main():
         default="pdf",
         dest="fig_format",
     )
-    parser.add_argument("--no-show", action="store_true", help="Do not call plt.show().")
+    parser.add_argument("--show", action="store_true", help="Call plt.show().")
     args = parser.parse_args()
 
-    base_prefix = (
-        f"{args.root_dir.rstrip('/')}/{args.sec_type}_range{args.range_idx}_clus_invivo_"
-    )
-
-    raw_df, summary_df, _ = visualize_ap_ca_from_base(
-        base_clus_invivo_prefix=base_prefix,
-        suffixes=list(args.suffixes),
-        aff_order=args.aff_order,
-        stim_idx=args.stim_idx,
-        save_dir=args.output_dir,
-        fig_format=args.fig_format,
-        show=not args.no_show,
-    )
+    spat_conds = tuple(args.spat_conditions)
+    if len(spat_conds) != 2:
+        raise SystemExit(
+            "This script expects exactly 2 spat conditions for the 2x2 layout "
+            f"(clus + distr). Got: {spat_conds}"
+        )
 
     os.makedirs(args.output_dir, exist_ok=True)
+    out_name = f"ap_ca_clus_distr_aff{args.aff_label}_by_range.{args.fig_format}"
+    save_path = os.path.join(args.output_dir, out_name)
+
+    raw_df, summary_df, _ = visualize_ap_ca_across_ranges(
+        root_dir=args.root_dir,
+        range_idxs=list(args.range_idxs),
+        conditions=spat_conds,  # type: ignore[arg-type]
+        suffix=args.suffix,
+        aff_label=args.aff_label,
+        stim_idx=args.stim_idx,
+        save_path=save_path,
+        fig_format=args.fig_format,
+        show=args.show,
+    )
+
     raw_df.to_csv(
-        os.path.join(args.output_dir, f"{args.sec_type}_range{args.range_idx}_spike_rates_raw.csv"),
+        os.path.join(args.output_dir, f"spike_rates_raw_aff{args.aff_label}.csv"),
         index=False,
     )
     summary_df.to_csv(
-        os.path.join(
-            args.output_dir,
-            f"{args.sec_type}_range{args.range_idx}_spike_rates_summary.csv",
-        ),
+        os.path.join(args.output_dir, f"spike_rates_summary_aff{args.aff_label}.csv"),
         index=False,
     )
 

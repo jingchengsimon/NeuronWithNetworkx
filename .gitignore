@@ -8,6 +8,9 @@ __pycache__/
 *.pyo
 *.pyd
 **/*.py[cod]
+# Numba JIT disk cache (regenerated on import / first @njit call)
+*.nbc
+*.nbi
 
 # 忽略 log 文件
 *.log
