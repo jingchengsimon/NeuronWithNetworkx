@@ -31,3 +31,6 @@ globals_backup_*.pkl
 
 # 忽略大文件，比如输出结果文件（已由 *.ipynb 覆盖，保留作说明）
 # BiophysInspectSimplified.ipynb
+
+# Results
+results
