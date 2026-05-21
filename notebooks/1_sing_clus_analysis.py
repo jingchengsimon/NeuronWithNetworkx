@@ -504,7 +504,7 @@ def batch_nonlinearity_analysis(prefix, filename_template, anal_loc_list, rec_lo
         rec_loc_list = rec_loc_list_map.get(anal_loc, ['dend'])
         
         for range_idx in [0, 1, 2]:
-            for attr in ['area']:
+            for attr in ['peak', 'area']:
                 for rec_loc in rec_loc_list:
                     task_params = (
                         prefix, filename_template, anal_loc, rec_loc, attr, range_idx,
@@ -551,17 +551,17 @@ print("🚨 Running in SAFE MODE to prevent system restart")
 print("💡 To enable parallel processing, set parallel=True (use with caution)")
 
 batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'apical'], 
-                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'soma']}, num_epochs)
+                            {'basal': ['dend', 'nexus'], 'apical': ['dend', 'nexus']}, num_epochs)
 
 batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
-                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'soma']}, num_epochs)
+                            {'basal': ['dend', 'nexus'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-# # 4. Vivo N+A Clustered & Distributed
-# batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
-#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+# 4. Vivo N+A Clustered & Distributed
+batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
+                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-# batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
-#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
+                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
 
 # # 2. Vitro AMPA Clustered & Distributed
