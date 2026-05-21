@@ -556,12 +556,12 @@ batch_nonlinearity_analysis('vitro_N+A', '_clus_invitro_singclus', ['basal', 'ap
 batch_nonlinearity_analysis('vitro_N+A_distr', '_distr_invitro_singclus', ['basal', 'apical'],
                             {'basal': ['dend', 'nexus'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-# 4. Vivo N+A Clustered & Distributed
-batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
-                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+# # 4. Vivo N+A Clustered & Distributed
+# batch_nonlinearity_analysis('vivo_N+A', '_clus_invivo_singclus', ['basal', 'apical'],
+#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
-batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
-                            {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
+# batch_nonlinearity_analysis('vivo_N+A_distr', '_distr_invivo_singclus', ['basal', 'apical'],
+#                             {'basal': ['dend', 'soma'], 'apical': ['dend', 'nexus']}, num_epochs)
 
 
 # # 2. Vitro AMPA Clustered & Distributed
