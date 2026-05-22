@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 from tqdm import tqdm
 import numpy as np
-import pandas as pd
 import json
 import ast
 from utils.synapses_models import AMPANMDA
@@ -223,125 +222,6 @@ def _add_background_exc_inputs_replay(
                 unit="syn",
             )
         )
-
-    return section_synapse_df
-
-
-# Match segments with function groups of pink noise
-def add_background_exc_inputs_2(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
-                              input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
-                              bg_syn_pos_seed, spike_gen_seed, spat_condition, section_synapse_df_clus):
-
-    sec_syn_bg_exc_df = section_synapse_df[section_synapse_df['type'].isin(['A'])]
-    num_syn_bg_exc = len(sec_syn_bg_exc_df)
-
-    sec_syn_bg_exc_df_clus = section_synapse_df_clus[section_synapse_df_clus['type'].isin(['A'])]
-
-    segments_dend_df = pd.read_csv('all_segments_dend.csv')
-    num_func_group = 2 # segments_dend_df.shape[0] #num_func_group # (26,000/5)/100 = 52
-    pink_noise_array = make_noise(num_traces=num_func_group, num_samples=DURATION, spike_gen_seed=spike_gen_seed, scale=0.5)
-    
-    # Generate log-normal distribution
-    loc_rnd = np.random.default_rng(bg_syn_pos_seed)
-    spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
-    sigma = 1
-    mu = np.log(initW) - 0.5*sigma**2
-    syn_w_distr = loc_rnd.lognormal(mean=mu, sigma=sigma, size=50000)
-    initW_distr_array = loc_rnd.choice(syn_w_distr, size=num_syn_bg_exc, replace=True)
-    e_syn, tau1, tau2 = syn_param_exc
-
-    def process_section(i):    
-        section = sec_syn_bg_exc_df.iloc[i]
-        section_clus = sec_syn_bg_exc_df_clus.iloc[i]
-        
-        if section['synapse'] is None:
-            
-            if bg_exc_channel_type == 'Exp2Syn':
-                synapse = h.Exp2Syn(sec_syn_bg_exc_df.iloc[i]['segment_synapse']) 
-                synapse.e = e_syn
-                synapse.tau1 = tau1
-                synapse.tau2 = tau2
-            
-            else:
-                syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
-                if spat_condition == 'clus':
-                    # initW_distr = loc_rnd.choice(syn_w_distr, 1)[0]
-                    initW_distr =  initW_distr_array[i]
-                elif spat_condition == 'distr':
-                    initW_distr = section_clus['syn_w'] / 1000
-                syn_params['initW'] = initW_distr # variedW
-                synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], bg_exc_channel_type)
-
-        else:
-            synapse = section['synapse']
-
-        if spat_condition == 'clus':
-            # Use np.random.poisson to generate the spike counts independently
-            # Remember to divide by 1000 to get the rate per ms
-
-            # section_synapse, loc = section['section_synapse'], section['loc']
-            # matching_segments = segments_dend_df[segments_dend_df['section_name'] == str(section_synapse)]
-                    
-            # if not matching_segments.empty:
-            #     # 找到最接近的 x_position
-            #     x_positions = matching_segments['x_position'].values
-            #     closest_idx = np.argmin(np.abs(x_positions - loc))
-            #     segment_index = matching_segments.index[closest_idx]
-            segment_index = 0 if section['region'] == 'basal' else 1
-
-            # Random choose a pink noise trace and rectify it to remove negative values and rescaled its mean to 1
-            pink_noise = pink_noise_array[segment_index]#spk_rnd.integers(num_func_group)] 
-            pink_noise[pink_noise<0] = 0
-            pink_noise = pink_noise/np.mean(pink_noise)
-
-            # variation_factor = 10  # 可调，越大分布越宽        
-            # pink_noise = (pink_noise - 1) * variation_factor + 1
-            # pink_noise[pink_noise < 0] = 0
-            # pink_noise = pink_noise / np.mean(pink_noise)
-
-            if section['region'] == 'basal':
-                counts = spk_rnd.poisson(FREQ_EXC/1000 * pink_noise)#pink_noise[seg_idx, tri_idx]) 
-            elif section['region'] == 'apical':
-                counts = spk_rnd.poisson(FREQ_EXC/(input_ratio_basal_apic*1000) * pink_noise)
-
-            spike_train_bg = np.where(counts >= 1)[0] # ndarray
-
-            # Filter spike_train to only include time points that do not exceed 1000
-            # spike_train = spike_train[spike_train <= 1000]
-
-            # update with failure probability p for presynaptic neuron spike trains (randomly dropout p*100% of each spike train)
-            mask = spk_rnd.choice([True, False], size=spike_train_bg.shape, p=[0.5, 0.5])
-            spike_train_bg = spike_train_bg[mask]
-
-        elif spat_condition == 'distr':
-            # the corresponding spike train with the identical number of synchronous inputs
-            spike_train_bg = ast.literal_eval(section_clus['spike_train_bg'])[0]
-
-        if i < 10:
-            # test rnd - print syn weight (4 decimals) and bg spike train on same line
-            print(f'syn weight {i}: {initW_distr:.4f}, background spike train {i}: {spike_train_bg}')
-            
-        netstim = h.VecStim()
-        netstim.play(h.Vector(spike_train_bg))
-
-        if section['netcon'] is not None:
-            section['netcon'].weight[0] = 0
-
-        netcon = h.NetCon(netstim, synapse)
-        netcon.delay = 0
-        netcon.weight[0] = 1 #syn_weight
-
-        # with lock:
-        if section['synapse'] is None:
-            section_synapse_df.at[section.name, 'synapse'] = synapse
-            section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr
-        section_synapse_df.at[section.name, 'netstim'] = netstim
-        section_synapse_df.at[section.name, 'spike_train_bg'].append(list(spike_train_bg)) 
-        section_synapse_df.at[section.name, 'netcon'] = netcon
-
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-        list(tqdm(executor.map(process_section, range(num_syn_bg_exc)), total=num_syn_bg_exc))
-        # executor.map(process_section, range(num_syn_bg_exc))
 
     return section_synapse_df
 
