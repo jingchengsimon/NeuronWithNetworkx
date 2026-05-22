@@ -33,8 +33,8 @@ MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                 syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False,
-                 replay_bg_csv=None):
+                 bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False,
+                 replay_bg_csv=None, clus_syn_pos_seed=None):
         """
         Initialize cell with networkx structure.
         
@@ -44,12 +44,13 @@ class CellWithNetworkx:
             bg_inh_freq: Background inhibitory frequency (Hz)
             SIMU_DURATION: Simulation duration (ms)
             STIM_DURATION: Stimulation duration (ms)
-            syn_pos_seed: Random seed for synapse positioning (controls synapse locations, 
-                            cluster positions, and synapse weights). Should be fixed across 
-                            simulations to maintain consistent morphology.
+            bg_syn_pos_seed: Random seed for synapse positioning and background synapse weights.
+                Should be fixed across simulations to maintain consistent morphology.
             bg_spike_gen_seed: Random seed for background (bg) spike generation (bg spike trains, pink noise). Used by add_background_*_inputs.
             clus_spike_gen_seed: Random seed for cluster stimulus spike generation (stim times in
                           generate_vecstim, preunit permutation). If None, falls back to bg_spike_gen_seed.
+            clus_syn_pos_seed: Random seed for cluster assignment and clustered synapse weight overwrite.
+                If None, falls back to bg_syn_pos_seed.
             with_ap: If True, use L5PCbiophys3withNaCa.hoc (with AP and Ca), 
                     else use L5PCbiophys3.hoc (default: False)
             with_global_rec: If True, record v/ina/iNMDA per segment (electrode), save seg_* arrays,
@@ -89,14 +90,15 @@ class CellWithNetworkx:
         # Random seed for cluster stimulus: stim times in generate_vecstim, preunit permutation
         self.clus_spike_gen_seed = clus_spike_gen_seed if clus_spike_gen_seed is not None else bg_spike_gen_seed
         
-        # Random seed for synapse positioning (spatial structure)
-        # Controls: synapse locations, cluster positions, synapse weights
-        self.syn_pos_seed = syn_pos_seed
+        # Random seeds for spatial structure and synapse weights
+        self.bg_syn_pos_seed = bg_syn_pos_seed
+        self.clus_syn_pos_seed = clus_syn_pos_seed if clus_syn_pos_seed is not None else bg_syn_pos_seed
+        self.syn_pos_seed = bg_syn_pos_seed  # Backward-compatible alias for replay/key messages.
         self.replay_bg_csv = replay_bg_csv  # resolved path to section_synapse_df.csv or None
         self._replay_exc_map = None # filled in add_synapses when replay; avoids second CSV read in add_inputs
         self._replay_inh_map = None
-        self.rnd = np.random.default_rng(syn_pos_seed)  # For synapse position selection
-        random.seed(syn_pos_seed)  # For Python random.choices in add_single_synapse
+        self.rnd = np.random.default_rng(bg_syn_pos_seed)  # For synapse position selection
+        random.seed(bg_syn_pos_seed)  # For Python random.choices in add_single_synapse
 
         if bg_exc_freq != 0:
             self.spike_interval = 1000/bg_exc_freq # interval=1000(ms)/f
@@ -310,9 +312,11 @@ class CellWithNetworkx:
         num_conn_per_preunit = min(num_conn_per_preunit, num_clusters) 
         num_preunit = num_syn_per_clus * np.ceil(num_clusters / 3).astype(int)
 
+        clus_loc_rnd = np.random.RandomState(self.clus_syn_pos_seed)
+
         if spat_condition == 'clus':            
             # Number of synapses in each cluster is not fixed
-            indices = generate_indices(self.rnd, num_clusters, num_conn_per_preunit, num_preunit)
+            indices = generate_indices(clus_loc_rnd, num_clusters, num_conn_per_preunit, num_preunit)
             
             self.num_clusters_sampled = num_clusters
 
@@ -320,7 +324,7 @@ class CellWithNetworkx:
             # num_pre*num_conn clus with 1 syn per 'cluster'
             num_clusters = num_preunit * num_conn_per_preunit
             numbers = np.repeat(np.arange(num_preunit), num_conn_per_preunit)
-            self.rnd.shuffle(numbers)
+            clus_loc_rnd.shuffle(numbers)
             indices = [[num] for num in numbers]
             self.num_clusters_sampled = min(10, num_clusters)
 
@@ -345,13 +349,10 @@ class CellWithNetworkx:
         self.num_conn_per_preunit = num_conn_per_preunit
         self.num_preunit = num_preunit
 
-        # Use syn_pos_seed for cluster positioning (spatial structure)
-        clus_loc_rnd = np.random.RandomState(self.syn_pos_seed)
-        
         for i in range(self.num_clusters):
 
             loop_count = 0
-            # clus_loc_rnd = np.random.RandomState(self.syn_pos_seed + i)
+            # clus_loc_rnd = np.random.RandomState(self.clus_syn_pos_seed + i)
 
             # Unassigned background synapses for surround synapses
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A') & 
@@ -729,7 +730,7 @@ class CellWithNetworkx:
         if simu_condition == 'invivo':
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
-                                    self.syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+                                    self.bg_syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
                                     replay_exc_by_key=replay_exc_map,
                                     use_fixedW=self.use_fixedW, fixedW=self.fixedW)
         
@@ -757,7 +758,7 @@ class CellWithNetworkx:
                         spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit][-1]]
                         
                     add_clustered_inputs(self.section_synapse_df, self.num_clusters, self.basal_channel_type, 
-                                         self.initW, spt_unit_array_truncated, self.syn_pos_seed, self.num_preunit,
+                                         self.initW, spt_unit_array_truncated, self.clus_syn_pos_seed, self.num_preunit,
                                          use_fixedW=self.use_fixedW, fixedW=self.fixedW)
                     
                 # for num_trial in range(num_trials): # 20

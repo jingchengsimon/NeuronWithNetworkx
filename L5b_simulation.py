@@ -142,10 +142,16 @@ def create_parser():
                         help='Number of trials (default: 1)')
     parser.add_argument('--folder_tag', type=str, default='1',
                         help='Folder tag for output (default: 1)')
-    # Random seeds - both default to epoch value
+    # Random seeds - default to epoch value
+    parser.add_argument('--bg_syn_pos_seed', type=int, default=None,
+                        help='Random seed for background synapse positioning and background synapse weights. '
+                             'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
+    parser.add_argument('--clus_syn_pos_seed', type=int, default=None,
+                        help='Random seed for cluster assignment and clustered synapse weight overwrite. '
+                             'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
     parser.add_argument('--syn_pos_seed', type=int, default=None,
-                        help='Random seed for synapse positioning (locations, clusters, weights). '
-                             'If None, uses epoch value. Controls spatial structure (default: None)')
+                        help='Deprecated shared synapse-position seed. Used as fallback for bg_syn_pos_seed '
+                             'and clus_syn_pos_seed when those are not set (default: None)')
     parser.add_argument('--bg_spike_gen_seed', type=int, default=None,
                         help='Random seed for background (bg) spike generation (bg spike trains, pink noise). If None, uses epoch value (default: None)')
     parser.add_argument('--clus_spike_gen_seed', type=int, default=None,
@@ -242,14 +248,22 @@ def build_cell(args):
     replay_bg_csv_arg = get_param('replay_bg_csv')
     
     # Random seeds: default to epoch if not set
-    # syn_pos_seed: spatial structure (synapse positions, clusters, weights)
+    # bg_syn_pos_seed: synapse locations and background synapse weights
+    # clus_syn_pos_seed: cluster assignment and clustered synapse weight overwrite
     # bg_spike_gen_seed: background (bg) spike generation (bg spike trains, pink noise)
     # clus_spike_gen_seed: cluster stimulus (stim times in generate_vecstim, preunit permutation)
+    bg_syn_pos_seed_arg = get_param('bg_syn_pos_seed')
+    clus_syn_pos_seed_arg = get_param('clus_syn_pos_seed')
     syn_pos_seed_arg = get_param('syn_pos_seed')
     bg_spike_gen_seed_arg = get_param('bg_spike_gen_seed')
     clus_spike_gen_seed_arg = get_param('clus_spike_gen_seed')
 
-    syn_pos_seed = syn_pos_seed_arg if syn_pos_seed_arg is not None else epoch
+    bg_syn_pos_seed = bg_syn_pos_seed_arg if bg_syn_pos_seed_arg is not None else (
+        syn_pos_seed_arg if syn_pos_seed_arg is not None else epoch
+    )
+    clus_syn_pos_seed = clus_syn_pos_seed_arg if clus_syn_pos_seed_arg is not None else (
+        syn_pos_seed_arg if syn_pos_seed_arg is not None else epoch
+    )
     bg_spike_gen_seed = bg_spike_gen_seed_arg if bg_spike_gen_seed_arg is not None else epoch
     clus_spike_gen_seed = clus_spike_gen_seed_arg if clus_spike_gen_seed_arg is not None else epoch
 
@@ -289,7 +303,8 @@ def build_cell(args):
         'number of functional groups': num_func_group, 'delay of inhibitory inputs': inh_delay,
         'number of stimuli': num_stim, 'time point of stimulation': stim_time,
         'number of connection per preunit': num_conn_per_preunit, 'number of synapses per cluster': num_syn_per_clus,
-        'number of trials': num_trials, 'syn_pos_seed': syn_pos_seed,
+        'number of trials': num_trials, 'syn_pos_seed': bg_syn_pos_seed,
+        'bg_syn_pos_seed': bg_syn_pos_seed, 'clus_syn_pos_seed': clus_syn_pos_seed,
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
         'expected': expected, 'aff_mode': aff_mode, 'aff_list': aff_list, 'iter_step': iter_step,
         'effective_iter_step': 1 if expected else iter_step,
@@ -312,8 +327,8 @@ def build_cell(args):
         json.dump(simulation_params, json_file, indent=4)
 
     cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                            syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec,
-                            replay_bg_csv=replay_bg_csv)
+                            bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec,
+                            replay_bg_csv=replay_bg_csv, clus_syn_pos_seed=clus_syn_pos_seed)
     cell1.add_synapses(NUM_SYN_BASAL_EXC, NUM_SYN_APIC_EXC, NUM_SYN_BASAL_INH, NUM_SYN_APIC_INH, NUM_SYN_SOMA_INH)
     
     cell1.assign_clustered_synapses(basal_channel_type, sec_type, distance_to_root, 
