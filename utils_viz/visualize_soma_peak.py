@@ -1,51 +1,48 @@
+import argparse
+import glob
+import json
 import os
 import re
-import json
-import glob
-import argparse
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+
+ANAL_LOCS: tuple[str, str] = ("basal", "apical")
+METRICS: tuple[str, str] = ("peak", "area")
+CONDITIONS: tuple[str, str] = ("clus", "distr")
 
 
-# ---------------------------
-# IO helpers
-# ---------------------------
 def _load_trace_folder(folder: str, anal_loc: str):
     """
     anal_loc:
       - 'basal'  -> soma_v_array.npy
       - 'apical' -> apic_v_array.npy
     """
-    if anal_loc == "apical":
-        trace_name = "apic_v_array.npy"
-    else:
-        trace_name = "soma_v_array.npy"  # default: basal and others
-
+    trace_name = "apic_v_array.npy" if anal_loc == "apical" else "soma_v_array.npy"
     trace_path = os.path.join(folder, trace_name)
     info_path = os.path.join(folder, "simulation_params.json")
-
     if (not os.path.exists(trace_path)) or (not os.path.exists(info_path)):
         return None, None, trace_name
 
     trace = np.load(trace_path)
     with open(info_path, "r") as f:
         simu_info = json.load(f)
-
     return trace, simu_info, trace_name
 
 
-def _normalize_soma_shape(soma: np.ndarray):
+def _normalize_trace_shape(trace: np.ndarray) -> np.ndarray:
     """
-    Normalize soma to (T, A, Trials).
+    Normalize trace to (T, A, Trials).
     """
-    if soma.ndim == 3:
-        return soma
-    if soma.ndim == 4:
-        return np.mean(soma, axis=1)
-    if soma.ndim == 5:
-        return np.mean(soma, axis=1)
-    raise ValueError(f"Unsupported soma ndim={soma.ndim}, shape={soma.shape}")
+    if trace.ndim == 3:
+        return trace
+    if trace.ndim == 4:
+        return np.mean(trace, axis=1)
+    if trace.ndim == 5:
+        return np.mean(trace, axis=1)
+    raise ValueError(f"Unsupported trace ndim={trace.ndim}, shape={trace.shape}")
 
 
 def _samples_per_ms_from_dt(dt_seconds: float) -> int:
@@ -68,9 +65,6 @@ def _ylabel_for_anal_metric(anal_loc: str, metric: str) -> str:
     return f"{anal_loc.capitalize()} {metric}"
 
 
-# ---------------------------
-# Path logic you asked for
-# ---------------------------
 def _infer_base_root_from_clus_prefix(base_clus_invivo_prefix: str) -> str:
     """
     base_clus_invivo_prefix example:
@@ -92,7 +86,6 @@ def _exp_dir_from_base(base_clus_invivo_prefix: str, condition: str, suffix: str
     """
     Build experiment dir:
       {base_root}_{condition}_invivo_{suffix}
-    where base_root is extracted from '*_clus_invivo_'.
     """
     base_root = _infer_base_root_from_clus_prefix(base_clus_invivo_prefix)
     condition = condition.strip()
@@ -100,13 +93,31 @@ def _exp_dir_from_base(base_clus_invivo_prefix: str, condition: str, suffix: str
     return f"{base_root}_{condition}_invivo_{suffix}"
 
 
+def _exp_dir_for_anal_loc(
+    base_clus_invivo_prefix: str,
+    anal_loc: str,
+    condition: str,
+    suffix: str,
+) -> str:
+    """
+    Convert a base prefix to location-specific directory:
+      <root>/<anal_loc>_range<N>_<condition>_invivo_<suffix>
+    """
+    base_root = _infer_base_root_from_clus_prefix(base_clus_invivo_prefix)
+    m = re.match(r"^(.*)/(basal|apical)_range(\d+)$", base_root)
+    if m:
+        root_parent = m.group(1)
+        range_idx = m.group(3)
+        suf = suffix.strip().lstrip("_")
+        return f"{root_parent}/{anal_loc}_range{range_idx}_{condition}_invivo_{suf}"
+    return _exp_dir_from_base(base_clus_invivo_prefix, condition, suffix)
+
+
 def _find_epoch_folders_two_level(exp_dir: str):
     """
-    Your layout:
+    Layout:
       exp_dir/<replicate>/<epoch>/soma_v_array.npy
-
-    We scan exp_dir/*/* and take basename(epoch_dir) as epoch int if numeric.
-    Return list of (epoch_int, epoch_dir_path).
+    Returns list[(epoch_int, epoch_dir)].
     """
     out = []
     for epoch_dir in glob.glob(os.path.join(exp_dir, "*", "*")):
@@ -119,31 +130,73 @@ def _find_epoch_folders_two_level(exp_dir: str):
     return out
 
 
+def _safe_int_list(raw):
+    if raw is None:
+        return None
+    if isinstance(raw, np.ndarray):
+        raw = raw.tolist()
+    if not isinstance(raw, (list, tuple)):
+        return None
+    out: list[int] = []
+    for x in raw:
+        try:
+            out.append(int(x))
+        except (TypeError, ValueError):
+            return None
+    return out
 
-def extract_soma_peak_trials(
+
+def _resolve_syn_nums_from_simu_info(simu_info: dict, n_aff: int) -> list[int]:
+    """
+    Resolve aff-axis syn counts for one run.
+    Prefer explicit aff_list in simulation_params for aff_mode=custom.
+    """
+    aff_mode = str(simu_info.get("aff_mode", "")).lower()
+    aff_list = _safe_int_list(simu_info.get("aff_list"))
+    if aff_mode == "custom" and aff_list:
+        if len(aff_list) >= n_aff:
+            return aff_list[:n_aff]
+        return aff_list + list(range(len(aff_list), n_aff))
+
+    n_syn_per_clus = int(simu_info.get("number of synapses per cluster", max(0, n_aff - 1)))
+    if aff_mode == "full":
+        if n_aff == 1:
+            return [n_syn_per_clus]
+        return list(range(n_aff))
+
+    if aff_mode == "linear":
+        iter_step = int(simu_info.get("effective_iter_step", simu_info.get("iter_step", 1)))
+        iter_step = max(1, iter_step)
+        candidates = list(range(0, n_syn_per_clus + 1, iter_step))
+        if len(candidates) >= n_aff:
+            return candidates[:n_aff]
+
+    return list(range(n_aff))
+
+
+def extract_trial_metrics_by_syn(
     folder: str,
+    *,
     window_ms: tuple[float, float] = (-20.0, 100.0),
     dt_seconds: float = 1 / 40000,
     stim_time_key: str = "time point of stimulation",
     anal_loc: str = "basal",
     metric: str = "peak",
-):
+) -> dict[int, np.ndarray] | None:
     """
-    Per-trial metric within window:
-      delta[t, trial] = trace[t, -1, trial] - trace[t, 0, trial]
+    Returns:
+      dict[syn_num] -> per-trial metric array (shape: [n_trials]).
 
-    metric:
-      - "peak": max_t(delta) per trial (current behavior).
-      - "area": integral over time of clip(delta, 0, None), using np.trapz (same as notebook).
-    trace source:
-      - basal  -> soma_v_array
-      - apical -> apic_v_array
+    EPSP is computed against aff baseline index 0:
+      delta[:, aff_idx, trial] = trace[:, aff_idx, trial] - trace[:, 0, trial]
     """
-    trace_raw, simu_info, trace_name = _load_trace_folder(folder, anal_loc=anal_loc)
+    trace_raw, simu_info, _ = _load_trace_folder(folder, anal_loc=anal_loc)
     if trace_raw is None:
         return None
 
-    trace = _normalize_soma_shape(trace_raw)  # (T, A, Trials)
+    trace = _normalize_trace_shape(trace_raw)  # (T, A, Trials)
+    if trace.shape[1] <= 0:
+        return None
 
     if stim_time_key not in simu_info:
         raise KeyError(f"simulation_params.json missing key: '{stim_time_key}' in {folder}")
@@ -152,138 +205,140 @@ def extract_soma_peak_trials(
     spm = _samples_per_ms_from_dt(dt_seconds)
     t_start = int(round((t_ms + window_ms[0]) * spm))
     t_end = int(round((t_ms + window_ms[1]) * spm))
-
     T = trace.shape[0]
     t_start = max(0, min(T, t_start))
     t_end = max(0, min(T, t_end))
     if t_end <= t_start:
         return None
 
-    delta = trace[t_start:t_end, -1, :] - trace[t_start:t_end, 0, :]  # (n_time, n_trials)
+    seg = trace[t_start:t_end, :, :]  # (time, aff, trial)
+    delta = seg - seg[:, [0], :]  # baseline = aff index 0
+    n_aff = delta.shape[1]
+    syn_nums = _resolve_syn_nums_from_simu_info(simu_info, n_aff=n_aff)
 
+    out: dict[int, np.ndarray] = {}
     if metric == "peak":
-        values = np.max(delta, axis=0)  # (n_trials,)
+        values_by_aff = np.max(delta, axis=0)  # (aff, trials)
     elif metric == "area":
         n_samples = t_end - t_start
-        x = np.arange(0, n_samples) * dt_seconds  # time axis in seconds for trapz
-        soma_over_baseline = np.clip(delta, 0, None)  # [t, trials]
-        values = np.trapz(soma_over_baseline, x, axis=0)  # (n_trials,)
+        x = np.arange(0, n_samples) * dt_seconds
+        values_by_aff = np.trapz(np.clip(delta, 0, None), x, axis=0)  # (aff, trials)
     else:
         raise ValueError(f"metric must be 'peak' or 'area', got {metric!r}")
 
-    return values
+    for aff_idx in range(n_aff):
+        syn_num = int(syn_nums[aff_idx]) if aff_idx < len(syn_nums) else aff_idx
+        out[syn_num] = np.asarray(values_by_aff[aff_idx], dtype=float)
+    return out
 
 
 def build_peak_dataframe_from_base(
+    *,
     base_clus_invivo_prefix: str,
-    suffixes: list[str],
-    conditions: tuple[str, str] = ("clus", "distr"),
+    suffix: str,
+    syn_nums: tuple[int, ...] | None = None,
+    conditions: tuple[str, str] = CONDITIONS,
     window_ms: tuple[float, float] = (-20.0, 100.0),
     dt_seconds: float = 1 / 40000,
-    anal_loc: str = "basal",
-    metric: str = "peak",
-):
-    rows = []
-    for suffix in suffixes:
-        for cond in conditions:
-            exp_dir = _exp_dir_from_base(base_clus_invivo_prefix, cond, suffix)
-            epoch_folders = _find_epoch_folders_two_level(exp_dir)
-            if not epoch_folders:
-                continue
+    anal_locs: tuple[str, str] = ANAL_LOCS,
+    metrics: tuple[str, str] = METRICS,
+) -> pd.DataFrame:
+    rows: list[dict] = []
+    syn_filter = set(syn_nums) if syn_nums is not None else None
 
-            for epoch_idx, folder in epoch_folders:
-                values = extract_soma_peak_trials(
-                    folder=folder,
-                    window_ms=window_ms,
-                    dt_seconds=dt_seconds,
+    for anal_loc in anal_locs:
+        for metric in metrics:
+            for cond in conditions:
+                exp_dir = _exp_dir_for_anal_loc(
+                    base_clus_invivo_prefix,
                     anal_loc=anal_loc,
-                    metric=metric,
+                    condition=cond,
+                    suffix=suffix,
                 )
-                if values is None:
+                epoch_folders = _find_epoch_folders_two_level(exp_dir)
+                if not epoch_folders:
                     continue
 
-                for p in np.asarray(values).ravel():
-                    rows.append(
-                        dict(
-                            epoch=epoch_idx,
-                            suffix=suffix,
-                            condition=cond,
-                            peak=float(p),
-                            folder=folder,
-                            anal_loc=anal_loc,
-                            metric=metric,
-                        )
+                for epoch_idx, folder in epoch_folders:
+                    by_syn = extract_trial_metrics_by_syn(
+                        folder,
+                        window_ms=window_ms,
+                        dt_seconds=dt_seconds,
+                        anal_loc=anal_loc,
+                        metric=metric,
                     )
+                    if not by_syn:
+                        continue
+
+                    for syn_num, values in by_syn.items():
+                        if syn_filter is not None and syn_num not in syn_filter:
+                            continue
+                        vals = np.asarray(values).ravel()
+                        vals = vals[np.isfinite(vals)]
+                        for p in vals:
+                            rows.append(
+                                {
+                                    "epoch": int(epoch_idx),
+                                    "suffix": suffix,
+                                    "condition": cond,
+                                    "peak": float(p),
+                                    "folder": folder,
+                                    "anal_loc": anal_loc,
+                                    "metric": metric,
+                                    "syn_num": int(syn_num),
+                                }
+                            )
 
     df = pd.DataFrame(rows)
     if df.empty:
-        raise RuntimeError("No peaks extracted. Check recordings exist and anal_loc mapping is correct.")
+        raise RuntimeError(
+            f"No EPSP values extracted for suffix={suffix}. "
+            "Check recordings exist and aff axis matches requested syn_nums."
+        )
     return df
 
 
-def plot_peak_violins(
-    df,
-    conditions=("clus", "distr"),
-    figsize_per_suffix=(5.2, 4.2),
-    show_points=False,
-):
-    """
-    x-axis: categorical condition only: {clus, distr}
-    y-axis: peak
-    each suffix: one subplot (expand to the right)
-    violin color: clus=red, distr=blue
-    inside violin: boxplot (median line always drawn)
-    remove median line from violin + remove error bar
-    """
-    suffix_list = sorted(df["suffix"].unique().tolist())
-    ncol = len(suffix_list)
+def _syn_num_offsets(n_syn: int) -> np.ndarray:
+    if n_syn == 1:
+        return np.array([0.0], dtype=float)
+    return np.linspace(-0.28, 0.28, n_syn)
 
-    fig_w = max(6.0, figsize_per_suffix[0] * ncol)
-    fig_h = figsize_per_suffix[1]
-    fig, axes = plt.subplots(1, ncol, figsize=(fig_w, fig_h), sharey=True)
-    if ncol == 1:
-        axes = [axes]
 
-    color_map = {
-        "clus": "tab:red",
-        "distr": "tab:blue",
-    }
-
-    for ax, suffix in zip(axes, suffix_list):
-        sdf = df[df["suffix"] == suffix]
-
-        data_list = []
-        for cond in conditions:
-            vals = sdf[sdf["condition"] == cond]["peak"].to_numpy()
-            vals = vals[np.isfinite(vals)]
-            data_list.append(vals)
-
-        positions = np.arange(1, len(conditions) + 1, dtype=float)
-
-        # --- Violin (no median line, no extrema) ---
+def _plot_single_syn_violin(
+    ax: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    conditions: tuple[str, str] = CONDITIONS,
+) -> None:
+    cond_centers = {"clus": 1.0, "distr": 2.0}
+    color_map = {"clus": "tab:red", "distr": "tab:blue"}
+    for cond in conditions:
+        vals = df[df["condition"] == cond]["peak"].to_numpy()
+        vals = vals[np.isfinite(vals)]
+        if vals.size == 0:
+            continue
+        position = cond_centers[cond]
         parts = ax.violinplot(
-            dataset=data_list,
-            positions=positions,
-            widths=0.85,
+            dataset=[vals],
+            positions=[position],
+            widths=0.55,
             showmeans=False,
-            showmedians=False,   # 删除你说的“蓝色横线”
+            showmedians=False,
             showextrema=False,
         )
-        for body, cond in zip(parts["bodies"], conditions):
-            body.set_facecolor(color_map.get(cond, "gray"))
-            body.set_edgecolor("none")
-            body.set_alpha(0.35)
+        body = parts["bodies"][0]
+        body.set_facecolor(color_map[cond])
+        body.set_edgecolor("none")
+        body.set_alpha(0.35)
 
-        # --- Boxplot inside violin (reference style) ---
         bp = ax.boxplot(
-            data_list,
-            positions=positions,
-            widths=0.18,
+            [vals],
+            positions=[position],
+            widths=0.12,
             patch_artist=True,
             showfliers=False,
             whis=1.5,
         )
-        # box style: transparent fill, black edge
         for box in bp["boxes"]:
             box.set_facecolor("none")
             box.set_edgecolor("black")
@@ -298,101 +353,268 @@ def plot_peak_violins(
             cap.set_color("black")
             cap.set_linewidth(1.0)
 
-        # optional raw points
-        if show_points:
-            for x0, vals, cond in zip(positions, data_list, conditions):
-                if vals.size == 0:
-                    continue
-                jitter = (np.random.rand(vals.size) - 0.5) * 0.12
-                ax.scatter(
-                    np.full(vals.size, x0) + jitter,
-                    vals,
-                    s=6,
-                    alpha=0.25,
-                    color=color_map.get(cond, "gray"),
+    ax.set_xticks([cond_centers[c] for c in conditions])
+    ax.set_xticklabels(list(conditions))
+    ax.set_xlabel("Condition")
+
+
+def _plot_multi_syn_violin(
+    ax: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    conditions: tuple[str, str] = CONDITIONS,
+) -> None:
+    syn_nums = sorted(int(x) for x in df["syn_num"].dropna().unique())
+    offsets = _syn_num_offsets(len(syn_nums))
+    syn_to_offset = {syn_num: offsets[idx] for idx, syn_num in enumerate(syn_nums)}
+    syn_to_alpha = {
+        syn_num: 0.25 + 0.45 * (idx + 1) / len(syn_nums)
+        for idx, syn_num in enumerate(syn_nums)
+    }
+    cond_centers = {"clus": 1.0, "distr": 2.0}
+    color_map = {"clus": "tab:red", "distr": "tab:blue"}
+    violin_width = 0.16 if len(syn_nums) >= 3 else 0.20
+
+    for cond in conditions:
+        for syn_num in syn_nums:
+            vals = df[(df["condition"] == cond) & (df["syn_num"] == syn_num)]["peak"].to_numpy()
+            vals = vals[np.isfinite(vals)]
+            if vals.size == 0:
+                continue
+            position = cond_centers[cond] + syn_to_offset[syn_num]
+            parts = ax.violinplot(
+                dataset=[vals],
+                positions=[position],
+                widths=violin_width,
+                showmeans=False,
+                showmedians=False,
+                showextrema=False,
+            )
+            body = parts["bodies"][0]
+            body.set_facecolor(color_map[cond])
+            body.set_edgecolor("none")
+            body.set_alpha(syn_to_alpha[syn_num])
+
+            bp = ax.boxplot(
+                [vals],
+                positions=[position],
+                widths=0.06,
+                patch_artist=True,
+                showfliers=False,
+                whis=1.5,
+            )
+            for box in bp["boxes"]:
+                box.set_facecolor("none")
+                box.set_edgecolor("black")
+                box.set_linewidth(1.0)
+            for med in bp["medians"]:
+                med.set_color("black")
+                med.set_linewidth(1.0)
+            for whisk in bp["whiskers"]:
+                whisk.set_color("black")
+                whisk.set_linewidth(1.0)
+            for cap in bp["caps"]:
+                cap.set_color("black")
+                cap.set_linewidth(1.0)
+
+    legend_handles = [
+        Patch(
+            facecolor="0.5",
+            edgecolor="none",
+            alpha=syn_to_alpha[syn_num],
+            label=f"syn={syn_num}",
+        )
+        for syn_num in syn_nums
+    ]
+    ax.legend(handles=legend_handles, title="Syn num", frameon=False, loc="upper left")
+    ax.set_xticks([cond_centers[c] for c in conditions])
+    ax.set_xticklabels(list(conditions))
+    ax.set_xlabel("Condition")
+
+
+def _plot_multi_syn_line(
+    ax: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    conditions: tuple[str, str] = CONDITIONS,
+) -> None:
+    color_map = {"clus": "tab:red", "distr": "tab:blue"}
+    syn_nums = sorted(int(x) for x in df["syn_num"].dropna().unique())
+    for cond in conditions:
+        medians: list[float] = []
+        yerr_low: list[float] = []
+        yerr_high: list[float] = []
+        x_valid: list[int] = []
+        for syn_num in syn_nums:
+            vals = df[(df["condition"] == cond) & (df["syn_num"] == syn_num)]["peak"].to_numpy()
+            vals = vals[np.isfinite(vals)]
+            if vals.size == 0:
+                continue
+            q25, q50, q75 = np.percentile(vals, [25, 50, 75])
+            x_valid.append(syn_num)
+            medians.append(float(q50))
+            yerr_low.append(float(q50 - q25))
+            yerr_high.append(float(q75 - q50))
+
+        if not x_valid:
+            continue
+        ax.errorbar(
+            x_valid,
+            medians,
+            yerr=np.vstack([yerr_low, yerr_high]),
+            marker="o",
+            markersize=4.0,
+            linewidth=1.8,
+            capsize=3.0,
+            color=color_map[cond],
+            label=cond,
+            zorder=3,
+        )
+    ax.set_xlabel("Syn num")
+    ax.set_xticks(syn_nums)
+    ax.legend(frameon=False, loc="best")
+
+
+def _style_axis(ax: plt.Axes, anal_loc: str, metric: str) -> None:
+    ax.set_title(f"{anal_loc} | {metric}")
+    ax.set_ylabel(_ylabel_for_anal_metric(anal_loc, metric))
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def build_meta_figure(
+    df_suffix: pd.DataFrame,
+    *,
+    syn_nums: tuple[int, ...],
+    plot_violin: bool,
+    suffix: str,
+) -> plt.Figure:
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 8.0), sharex=False)
+    for row_idx, metric in enumerate(METRICS):
+        for col_idx, anal_loc in enumerate(ANAL_LOCS):
+            ax = axes[row_idx, col_idx]
+            sub = df_suffix[(df_suffix["metric"] == metric) & (df_suffix["anal_loc"] == anal_loc)]
+            if sub.empty:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "missing data",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    color="0.4",
                 )
+                _style_axis(ax, anal_loc, metric)
+                continue
 
-        ax.set_xticks(positions)
-        ax.set_xticklabels(list(conditions))
-        ax.set_xlabel("Condition")
-        ax.set_title(f"suffix: {suffix}")
-        ax.grid(True, axis="y", alpha=0.25)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+            if len(syn_nums) == 1:
+                _plot_single_syn_violin(ax, sub)
+            elif plot_violin:
+                _plot_multi_syn_violin(ax, sub)
+            else:
+                _plot_multi_syn_line(ax, sub)
+            _style_axis(ax, anal_loc, metric)
 
-    # ---- auto label by anal_loc (generic) ----
-    anal_loc = None
-    metric = None
-    if "anal_loc" in df.columns:
-        unique_locs = df["anal_loc"].dropna().unique()
-        if len(unique_locs) == 1:
-            anal_loc = str(unique_locs[0])
-
-    if "metric" in df.columns:
-        unique_metrics = df["metric"].dropna().unique()
-        if len(unique_metrics) == 1:
-            metric = str(unique_metrics[0])
-
-    if anal_loc and metric:
-        axes[0].set_ylabel(_ylabel_for_anal_metric(anal_loc, metric))
-    elif metric:
-        axes[0].set_ylabel(metric.capitalize())
-    else:
-        axes[0].set_ylabel("")
-
-
-    fig.tight_layout()
-    return fig, axes
-
-
-def visualize_soma_peak_from_base(
-    base_clus_invivo_prefix: str,
-    anal_loc: str = "basal",
-    metric: str = "peak",
-    suffixes: list[str] = ("spktimevar",),
-    window_ms: tuple[float, float] = (-20.0, 100.0),
-    dt_seconds: float = 1 / 40000,
-    conditions: tuple[str, str] = ("clus", "distr"),
-    save_path: str | None = None,
-    show: bool = True,
-):
-    df = build_peak_dataframe_from_base(
-        base_clus_invivo_prefix=base_clus_invivo_prefix,
-        suffixes=list(suffixes),
-        conditions=conditions,
-        window_ms=window_ms,
-        dt_seconds=dt_seconds,
-        anal_loc=anal_loc,
-        metric=metric,
+    plot_mode = "violin" if (len(syn_nums) == 1 or plot_violin) else "line+errorbar"
+    syn_text = ",".join(str(x) for x in syn_nums)
+    fig.suptitle(
+        f"{suffix} variability | mode={plot_mode} | syn=[{syn_text}]",
+        fontsize=12,
     )
-    fig, axes = plot_peak_violins(df, conditions=conditions)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig
 
-    if save_path is not None:
-        save_dir = os.path.dirname(save_path)
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
+
+def visualize_meta_figures_from_base(
+    *,
+    root_dir: str,
+    range_idx: int,
+    suffixes: tuple[str, ...],
+    syn_nums: tuple[int, ...] | None,
+    output_dir: str,
+    fig_format: str,
+    plot_violin: bool,
+    window_ms: tuple[float, float],
+    dt_seconds: float = 1 / 40000,
+    show: bool = False,
+) -> dict[str, pd.DataFrame]:
+    os.makedirs(output_dir, exist_ok=True)
+    results: dict[str, pd.DataFrame] = {}
+    for suffix in suffixes:
+        base_prefix = f"{root_dir.rstrip('/')}/basal_range{range_idx}_clus_invivo_"
+        df_suffix = build_peak_dataframe_from_base(
+            base_clus_invivo_prefix=base_prefix,
+            suffix=suffix,
+            syn_nums=syn_nums,
+            conditions=CONDITIONS,
+            window_ms=window_ms,
+            dt_seconds=dt_seconds,
+            anal_locs=ANAL_LOCS,
+            metrics=METRICS,
+        )
+        if syn_nums is None:
+            syn_nums_used = tuple(sorted(int(x) for x in df_suffix["syn_num"].dropna().unique()))
+        else:
+            syn_nums_used = tuple(sorted(dict.fromkeys(int(x) for x in syn_nums)))
+
+        fig = build_meta_figure(
+            df_suffix,
+            syn_nums=syn_nums_used,
+            plot_violin=plot_violin,
+            suffix=suffix,
+        )
+        mode_tag = "violin" if (len(syn_nums_used) == 1 or plot_violin) else "line"
+        syn_tag = "_".join(str(x) for x in syn_nums_used)
+        out_name = f"meta_{suffix}_range{range_idx}_syn{syn_tag}_{mode_tag}_vivo.{fig_format}"
+        save_path = os.path.join(output_dir, out_name)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved {save_path}  (n={len(df_suffix)} points)")
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
+        results[suffix] = df_suffix
+    return results
 
-    if show:
-        plt.show()
 
-    return df, fig, axes
-
-if __name__ == "__main__":
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Violin plots for basal (soma) vs apical (tuft) EPSP metrics."
+        description=(
+            "Soma/tuft EPSP meta-figures from simulation folders. "
+            "One 2x2 figure per suffix (rows: peak/area; cols: basal/apical)."
+        )
     )
     parser.add_argument(
         "--root-dir",
-        default="/G/results/simulation_singclus_supple_Feb26",
-        help="Directory containing <anal_loc>_range<N>_clus_invivo_* experiment trees.",
+        default="/G/results/simulation_singclus_supple_May26",
+        help="Directory containing <anal_loc>_range<N>_clus/distr_invivo_<suffix> trees.",
     )
     parser.add_argument("--range-idx", type=int, default=1, help="Range index N in path names.")
     parser.add_argument(
         "--suffixes",
         nargs="+",
-        default=["spktimevar", "bgtimevar"],
-        help="Experiment suffixes (e.g. spktimevar bgtimevar).",
+        default=["bgtimevar", "spktimevar"],
+        help="Experiment suffixes; each suffix produces one meta figure.",
+    )
+    parser.add_argument(
+        "--syn-num",
+        type=int,
+        default=None,
+        help="Single synapse count (deprecated by --syn-nums).",
+    )
+    parser.add_argument(
+        "--syn-nums",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Multiple synapse counts, e.g. --syn-nums 0 12 24 36 48 60 72. "
+             "If omitted, use all available syn numbers in data.",
+    )
+    parser.add_argument(
+        "--plot-violin",
+        action="store_true",
+        help="When syn-nums has multiple values, use grouped violin instead of line+errorbar.",
     )
     parser.add_argument(
         "--window-ms",
@@ -403,135 +625,46 @@ if __name__ == "__main__":
         help="Time window around stimulation (ms).",
     )
     parser.add_argument(
-        "--metrics",
-        nargs="+",
-        choices=["peak", "area"],
-        default=["peak"],
-        help="Metrics to plot (one figure file per anal_loc x metric).",
-    )
-    parser.add_argument(
-        "--anal-locs",
-        nargs="+",
-        choices=["basal", "apical"],
-        default=["basal", "apical"],
-        help="Which recordings to plot.",
-    )
-    parser.add_argument(
         "--output-dir",
-        default="./results",
+        default="./results/violin_supple/soma_peak",
         help="Directory for saved figures.",
     )
     parser.add_argument(
-        "--format",
+        "--fig-format",
         choices=["pdf", "png"],
         default="pdf",
-        dest="fig_format",
         help="Figure file format.",
     )
     parser.add_argument(
-        "--no-show",
+        "--show",
         action="store_true",
-        help="Do not call plt.show() (useful for batch runs).",
+        help="Call plt.show() after saving.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    # Set True only when post-processing a fresh bg-vary sweep to choose bg_spike_gen_seed (best_epoch).
-    RUN_BG_SEED_DIAGNOSTICS = False
+
+def main() -> None:
+    args = parse_args()
+    if args.syn_nums is not None:
+        syn_nums = tuple(sorted(dict.fromkeys(int(x) for x in args.syn_nums)))
+    elif args.syn_num is not None:
+        syn_nums = (int(args.syn_num),)
+    else:
+        syn_nums = None
 
     window_ms = (float(args.window_ms[0]), float(args.window_ms[1]))
+    visualize_meta_figures_from_base(
+        root_dir=args.root_dir,
+        range_idx=int(args.range_idx),
+        suffixes=tuple(args.suffixes),
+        syn_nums=syn_nums,
+        output_dir=args.output_dir,
+        fig_format=args.fig_format,
+        plot_violin=bool(args.plot_violin),
+        window_ms=window_ms,
+        show=bool(args.show),
+    )
 
-    for anal_loc in args.anal_locs:
-        for metric in args.metrics:
-            base_clus_invivo_prefix = (
-                f"{args.root_dir.rstrip('/')}/{anal_loc}_range{args.range_idx}_clus_invivo_"
-            )
 
-            out_name = (
-                f"{anal_loc}_range{args.range_idx}_{metric}_violin_median.{args.fig_format}"
-            )
-            save_path = os.path.join(args.output_dir, out_name)
-
-            df, fig, axes = visualize_soma_peak_from_base(
-                base_clus_invivo_prefix=base_clus_invivo_prefix,
-                anal_loc=anal_loc,
-                metric=metric,
-                suffixes=list(args.suffixes),
-                window_ms=window_ms,
-                save_path=save_path,
-                show=not args.no_show,
-            )
-            if args.no_show:
-                plt.close(fig)
-
-            # --- Optional stdout: suggest bg_spike_gen_seed via best_epoch (disabled by default) ---
-            # PURPOSE: After a bg-vary sweep (e.g. bgtimevar), each `epoch` folder usually matches one
-            # background draw (see L5b_simulation: bg_spike_gen_seed defaults to epoch if unset). This
-            # block finds best_epoch minimizing
-            #   |clus_epoch_median - clus_overall_median| + |distr_epoch_median - distr_overall_median|
-            # so clus/distr median responses jointly sit near the global median — a reasonable
-            # representative bg random seed for follow-up (e.g. spktimevar at fixed bg).
-            #
-            # OFF by default: Current runs already use bg seeds chosen in an earlier sweep; re-printing
-            # a new best_epoch from these outputs would no longer mean "pick seed for the next sim" and
-            # can mislead. Toggle RUN_BG_SEED_DIAGNOSTICS above when analyzing a fresh bg sweep.
-            if RUN_BG_SEED_DIAGNOSTICS:
-                value_col = "peak"
-                needed_cols = ["epoch", "suffix", "condition", value_col]
-                if not all(col in df.columns for col in needed_cols):
-                    continue
-
-                overall_median_by_cond = (
-                    df.groupby(["suffix", "condition"])[value_col]
-                    .median()
-                    .rename("overall_median")
-                    .reset_index()
-                )
-
-                epoch_stats = (
-                    df.groupby(["suffix", "condition", "epoch"])[value_col]
-                    .median()
-                    .rename("epoch_median")
-                    .reset_index()
-                )
-
-                merged = epoch_stats.merge(
-                    overall_median_by_cond,
-                    on=["suffix", "condition"],
-                    how="inner",
-                )
-                merged["abs_diff"] = (merged["epoch_median"] - merged["overall_median"]).abs()
-
-                for suf, sub_suf in merged.groupby("suffix"):
-                    sub_suf = sub_suf[sub_suf["condition"].isin(["clus", "distr"])]
-                    if sub_suf.empty:
-                        continue
-
-                    epoch_score = (
-                        sub_suf.groupby("epoch")["abs_diff"]
-                        .sum()
-                        .rename("total_abs_diff")
-                        .reset_index()
-                    )
-
-                    best_idx = epoch_score["total_abs_diff"].idxmin()
-                    best_row = epoch_score.loc[best_idx]
-                    best_epoch = int(best_row["epoch"])
-                    best_score = float(best_row["total_abs_diff"])
-
-                    detail = merged[(merged["suffix"] == suf) & (merged["epoch"] == best_epoch)]
-
-                    print(
-                        f"[{anal_loc}] metric={metric}, suffix={suf} -> best_epoch={best_epoch}, "
-                        f"sum_abs_diff(clus+distr)={best_score:.4f}"
-                    )
-                    for cond in ["clus", "distr"]:
-                        row_c = detail[detail["condition"] == cond]
-                        if row_c.empty:
-                            continue
-                        em = float(row_c["epoch_median"].iloc[0])
-                        om = float(row_c["overall_median"].iloc[0])
-                        diff = float(row_c["abs_diff"].iloc[0])
-                        print(
-                            f"    condition={cond}: epoch_median={em:.4f}, "
-                            f"overall_median={om:.4f}, |diff|={diff:.4f}"
-                        )
+if __name__ == "__main__":
+    main()
