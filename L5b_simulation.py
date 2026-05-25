@@ -81,8 +81,9 @@ def create_parser():
     parser.add_argument('--aff_mode', type=str, default='linear',
                         choices=['linear', 'curve', 'full', 'custom'],
                         help='Activation mode across preunits: linear uses range(0, N+1, iter_step); '
-                             'curve uses dense first then sparse increments; full runs only N preunits; '
-                             'custom uses aff_list as the within-run aff axis (default: linear)')
+                             'curve uses dense first then sparse increments; full runs 0 and N preunits; '
+                             'custom uses aff_list as the within-run aff axis and auto-adds 0 if omitted '
+                             '(default: linear)')
     parser.add_argument('--aff_list', type=int, nargs='+', default=None,
                         help='Custom activated-preunit counts for aff_mode=custom, e.g. --aff_list 4 24 48 72. '
                              'This list is used within each run and does not expand parameter combinations.')

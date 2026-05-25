@@ -684,6 +684,9 @@ class CellWithNetworkx:
 
         effective_iter_step = 1 if expected else iter_step
 
+        def include_zero_aff_axis(aff_values):
+            return list(dict.fromkeys([0] + list(aff_values)))
+
         if aff_mode == 'linear':
             self.num_activated_preunit_list = list(range(0, self.num_preunit + 1, effective_iter_step))
         elif aff_mode == 'curve':
@@ -692,7 +695,7 @@ class CellWithNetworkx:
             sparse_part = list(range(effective_iter_step, self.num_preunit + 1, effective_iter_step))
             self.num_activated_preunit_list = sorted(list(set(dense_part + sparse_part)))
         elif aff_mode == 'full':
-            self.num_activated_preunit_list = [self.num_preunit]
+            self.num_activated_preunit_list = [0, self.num_preunit]
         elif aff_mode == 'custom':
             if aff_list is None or len(aff_list) == 0:
                 raise ValueError('aff_list must be provided when aff_mode is custom')
@@ -705,6 +708,7 @@ class CellWithNetworkx:
         else:
             raise ValueError(f'Unknown aff_mode: {aff_mode}')
 
+        self.num_activated_preunit_list = include_zero_aff_axis(self.num_activated_preunit_list)
         num_aff_fibers = len(self.num_activated_preunit_list)
         
         # Initialize arrays with common shape
