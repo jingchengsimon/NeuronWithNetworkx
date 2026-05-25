@@ -12,6 +12,12 @@ from matplotlib.patches import Patch
 ANAL_LOCS: tuple[str, str] = ("basal", "apical")
 METRICS: tuple[str, str] = ("peak", "area")
 CONDITIONS: tuple[str, str] = ("clus", "distr")
+VAR_SUFFIXES: tuple[str, str, str, str] = (
+    "bgtimevar",
+    "spktimevar",
+    "bgposvar",
+    "clusposvar",
+)
 
 
 def _load_trace_folder(folder: str, anal_loc: str):
@@ -154,6 +160,7 @@ def _resolve_syn_nums_from_simu_info(simu_info: dict, n_aff: int) -> list[int]:
     aff_mode = str(simu_info.get("aff_mode", "")).lower()
     aff_list = _safe_int_list(simu_info.get("aff_list"))
     if aff_mode == "custom" and aff_list:
+        aff_list = list(dict.fromkeys([0] + aff_list))
         if len(aff_list) >= n_aff:
             return aff_list[:n_aff]
         return aff_list + list(range(len(aff_list), n_aff))
@@ -162,7 +169,9 @@ def _resolve_syn_nums_from_simu_info(simu_info: dict, n_aff: int) -> list[int]:
     if aff_mode == "full":
         if n_aff == 1:
             return [n_syn_per_clus]
-        return list(range(n_aff))
+        if n_aff == 2:
+            return [0, n_syn_per_clus]
+        return [0] + list(range(1, n_aff))
 
     if aff_mode == "linear":
         iter_step = int(simu_info.get("effective_iter_step", simu_info.get("iter_step", 1)))
@@ -519,7 +528,7 @@ def build_meta_figure(
     plot_mode = "violin" if (len(syn_nums) == 1 or plot_violin) else "line+errorbar"
     syn_text = ",".join(str(x) for x in syn_nums)
     fig.suptitle(
-        f"{suffix} variability | mode={plot_mode} | syn=[{syn_text}]",
+        f"{suffix} var meta | mode={plot_mode} | syn=[{syn_text}]",
         fontsize=12,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
@@ -581,7 +590,7 @@ def visualize_meta_figures_from_base(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Soma/tuft EPSP meta-figures from simulation folders. "
+            "Var meta EPSP figures from simulation folders. "
             "One 2x2 figure per suffix (rows: peak/area; cols: basal/apical)."
         )
     )
@@ -594,7 +603,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--suffixes",
         nargs="+",
-        default=["bgtimevar", "spktimevar"],
+        default=list(VAR_SUFFIXES),
         help="Experiment suffixes; each suffix produces one meta figure.",
     )
     parser.add_argument(
@@ -626,7 +635,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="./results/violin_supple/soma_peak",
+        default="./results/violin_supple/var_meta",
         help="Directory for saved figures.",
     )
     parser.add_argument(
