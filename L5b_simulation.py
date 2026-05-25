@@ -11,6 +11,20 @@ from utils.replay_background_spikes import resolve_replay_section_synapse_csv
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
 MAX_PROCESS_COMBINATIONS = 64
 
+# distr add_inputs reads section_synapse_df.csv from the matching clus run (same epoch/path)
+SPAT_CONDITION_ORDER = ("clus", "distr")
+
+
+def ordered_spat_conditions(spat_list: list[str]) -> list[str]:
+    """Return spat conditions in dependency order: clus before distr."""
+    seen = set(spat_list)
+    ordered = [s for s in SPAT_CONDITION_ORDER if s in seen]
+    unknown = [s for s in spat_list if s not in SPAT_CONDITION_ORDER]
+    if unknown:
+        raise ValueError(f"Unknown spat_condition values: {unknown}")
+    return ordered
+
+
 # main function
 swc_file_path = './modelFile/cell1.asc'
 
@@ -67,7 +81,9 @@ def create_parser():
                         help='Simulation condition (default: invivo)')
     parser.add_argument('--spat_condition', type=str, nargs='+', default=['clus'],
                         choices=['clus', 'distr'],
-                        help='Spatial condition: clus (clustered) or distr (distributed) (default: clus)')
+                        help='Spatial condition: clus (clustered) or distr (distributed). '
+                             'When both are given, clus always runs before distr (distr replays clus synapse layout). '
+                             '(default: clus)')
     parser.add_argument('--sec_type', type=str, nargs='+', default=['basal'],
                         choices=['basal', 'apical'],
                         help='Section type (default: basal)')
@@ -394,28 +410,36 @@ if __name__ == "__main__":
             end_epoch = start_epoch + args.epochs_per_batch
             epoch_ranges.append(range(start_epoch, end_epoch))
 
+    spat_conditions = ordered_spat_conditions(args.spat_condition)
+    combos_per_epoch = (
+        len(args.simu_condition)
+        * len(args.sec_type)
+        * len(args.distance_to_root)
+    )
+    if combos_per_epoch > MAX_PROCESS_COMBINATIONS:
+        raise ValueError(
+            f'Parameter combinations per epoch/spat_condition exceed CPU core limit: '
+            f'{combos_per_epoch} > {MAX_PROCESS_COMBINATIONS}. '
+            f'Reduce simu_condition/sec_type/distance_to_root values.'
+        )
+
     for epoch_range in epoch_ranges:
-        combinations = [
-            (simu_condition, spat_cond, sec_type, dis_to_root, epoch, args)
-            for simu_condition, spat_cond, sec_type, dis_to_root in itertools.product(
-                args.simu_condition,
-                args.spat_condition,
-                args.sec_type,
-                args.distance_to_root,
-            )
-            for epoch in epoch_range
-        ]
-
-        if len(combinations) > MAX_PROCESS_COMBINATIONS:
-            raise ValueError(
-                f'Input parameter combinations exceed CPU core limit: '
-                f'{len(combinations)} > {MAX_PROCESS_COMBINATIONS}. '
-                f'Reduce the number of simu_condition/spat_condition/sec_type/'
-                f'distance_to_root values or epochs in this batch.'
-            )
-
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            executor.map(run_combination, combinations)
+        for epoch in epoch_range:
+            for spat_cond in spat_conditions:
+                combinations = [
+                    (simu_condition, spat_cond, sec_type, dis_to_root, epoch, args)
+                    for simu_condition, sec_type, dis_to_root in itertools.product(
+                        args.simu_condition,
+                        args.sec_type,
+                        args.distance_to_root,
+                    )
+                ]
+                print(
+                    f'Running epoch={epoch} spat_condition={spat_cond} '
+                    f'({len(combinations)} combinations in parallel)'
+                )
+                with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    executor.map(run_combination, combinations)
 
 
     # multiprocessing.set_start_method('spawn', force=True) # Use spawn will initiate too many NEURON instances 
@@ -435,10 +459,16 @@ if __name__ == "__main__":
     #                 run_processes(args_list, epoch)
 
     #   python L5b_simulation.py \
-        #   --sec_type basal \
-        #   --spat_condition clus distr \
-        #   --distance_to_root 0 2 \
-        #   --epoch_mode sing \
-        #   --start_epoch 1 \
-        #   --num_epochs 5
+    #     --with_ap \
+    #     --aff_mode custom \
+    #     --aff_list 4 8 12 24 48 72 \
+    #     --simu_condition invivo \
+    #     --sec_type basal apical \
+    #     --distance_to_root 0 1 2 \
+    #     --spat_condition clus distr \
+    #     --epoch_mode multi \
+    #     --num_batches 10 \
+    #     --epochs_per_batch 10 \
+    #     --start_epoch 1 \
+    #     --bg_exc_freq 1.3
 
