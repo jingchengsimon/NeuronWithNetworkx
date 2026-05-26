@@ -8,7 +8,6 @@ import pandas as pd
 from tqdm import tqdm
 import json
 import itertools
-import multiprocessing
 import os
 import random
 import sys
@@ -29,7 +28,7 @@ warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "64"))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
@@ -48,9 +47,8 @@ class CellWithNetworkx:
                 Should be fixed across simulations to maintain consistent morphology.
             bg_spike_gen_seed: Random seed for background (bg) spike generation (bg spike trains, pink noise). Used by add_background_*_inputs.
             clus_spike_gen_seed: Random seed for cluster stimulus spike generation (stim times in
-                          generate_vecstim, preunit permutation). If None, falls back to bg_spike_gen_seed.
+                          generate_vecstim, preunit permutation).
             clus_syn_pos_seed: Random seed for cluster assignment and clustered synapse weight overwrite.
-                If None, falls back to bg_syn_pos_seed.
             with_ap: If True, use L5PCbiophys3withNaCa.hoc (with AP and Ca), 
                     else use L5PCbiophys3.hoc (default: False)
             with_global_rec: If True, record v/ina/iNMDA per segment (electrode), save seg_* arrays,
@@ -78,22 +76,15 @@ class CellWithNetworkx:
 
         self.distance_matrix = None
 
-        self.num_syn_basal_exc = 0
-        self.num_syn_apic_exc = 0
-        self.num_syn_basal_inh = 0
-        self.num_syn_apic_inh = 0
-        self.num_syn_soma_inh = 0
+        (self.num_syn_basal_exc, self.num_syn_apic_exc, self.num_syn_basal_inh,
+         self.num_syn_apic_inh, self.num_syn_soma_inh) = (0, 0, 0, 0, 0)
 
-        # Random seed for background (bg) spike generation (temporal dynamics)
-        # Controls: bg spike trains, pink noise generation, firing patterns (add_background_*_inputs)
-        self.bg_spike_gen_seed = bg_spike_gen_seed
-        # Random seed for cluster stimulus: stim times in generate_vecstim, preunit permutation
-        self.clus_spike_gen_seed = clus_spike_gen_seed if clus_spike_gen_seed is not None else bg_spike_gen_seed
-        
-        # Random seeds for spatial structure and synapse weights
+        # Seeds are resolved by the caller before CellWithNetworkx is created.
         self.bg_syn_pos_seed = bg_syn_pos_seed
-        self.clus_syn_pos_seed = clus_syn_pos_seed if clus_syn_pos_seed is not None else bg_syn_pos_seed
-        self.syn_pos_seed = bg_syn_pos_seed  # Backward-compatible alias for replay/key messages.
+        self.clus_syn_pos_seed = clus_syn_pos_seed
+        self.bg_spike_gen_seed = bg_spike_gen_seed
+        self.clus_spike_gen_seed = clus_spike_gen_seed
+        
         self.replay_bg_csv = replay_bg_csv  # resolved path to section_synapse_df.csv or None
         self._replay_exc_map = None # filled in add_synapses when replay; avoids second CSV read in add_inputs
         self._replay_inh_map = None
@@ -124,57 +115,27 @@ class CellWithNetworkx:
             'netstim', 'netcon', 'spike_train', 'spike_train_bg'
         ], dtype=object)
                                          
-        # For clustered synapses (will be assigned in assign_clustered_synapses)
-        self.basal_channel_type = None
-        self.sec_type = None
-        self.num_clusters = None
-        self.num_clusters_sampled = None
-        self.cluster_radius = None
+        # Assigned later in assign_clustered_synapses/add_inputs.
+        for attr in (
+            'basal_channel_type', 'sec_type', 'num_clusters', 'num_clusters_sampled',
+            'cluster_radius', 'input_ratio_basal_apic', 'bg_exc_channel_type', 'initW',
+            'num_func_group', 'inh_delay', 'num_stim', 'stim_time', 'num_conn_per_preunit',
+            'num_preunit', 'unit_ids', 'indices', 'num_syn_inh_list', 'num_activated_preunit_list',
+        ):
+            setattr(self, attr, None)
 
-        # Input parameters (will be assigned in add_inputs)
-        self.input_ratio_basal_apic = None
-        self.bg_exc_channel_type = None
-        self.initW = None
-        self.num_func_group = None
-        self.inh_delay = None
-
-        # Stimulation parameters (will be assigned in assign_clustered_synapses)
-        self.num_stim = None
-        self.stim_time = None
-        self.num_conn_per_preunit = None
-        self.num_preunit = None
-
-
-        # Cluster assignment (will be assigned in assign_clustered_synapses)
-        self.unit_ids = None
-        self.indices = None
-
-        # Lists (will be assigned in add_inputs)
-        self.num_syn_inh_list = None
-        self.num_activated_preunit_list = None
-
-        # Arrays (will be initialized in add_inputs)
-        self.soma_v_array = None
-        self.apic_v_array = None
-        self.apic_ica_array = None
-        self.trunk_v_array = None
-        self.basal_v_array = None
-        self.tuft_v_array = None
-        self.basal_bg_i_nmda_array = None
-        self.basal_bg_i_ampa_array = None
-        self.tuft_bg_i_nmda_array = None
-        self.tuft_bg_i_ampa_array = None
-        self.dend_v_array = None
-        self.dend_i_array = None
-        self.dend_nmda_i_array = None
-        self.dend_ampa_i_array = None
-        self.dend_nmda_g_array = None
-        self.dend_ampa_g_array = None
+        # Recording arrays are initialized in add_inputs.
+        for attr in (
+            'soma_v_array', 'apic_v_array', 'apic_ica_array', 'trunk_v_array',
+            'basal_v_array', 'tuft_v_array', 'basal_bg_i_nmda_array', 'basal_bg_i_ampa_array',
+            'tuft_bg_i_nmda_array', 'tuft_bg_i_ampa_array', 'dend_v_array', 'dend_i_array',
+            'dend_nmda_i_array', 'dend_ampa_i_array', 'dend_nmda_g_array', 'dend_ampa_g_array',
+        ):
+            setattr(self, attr, None)
 
         self.with_global_rec = with_global_rec
-        self.seg_v_array = None
-        self.seg_ina_array = None
-        self.seg_inmda_array = None 
+        for attr in ('seg_v_array', 'seg_ina_array', 'seg_inmda_array'):
+            setattr(self, attr, None)
 
         self.lock = threading.Lock()
 

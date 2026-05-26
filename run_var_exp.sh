@@ -27,9 +27,9 @@ run_batches() {
 
       common_args=(
         L5b_simulation.py
-        --simu_condition invivo
-        --sec_type basal apical
-        --spat_condition "${spat_condition}"
+        --simulation_condition invivo
+        --section_type basal apical
+        --spatial_condition "${spat_condition}"
         --distance_to_root 1
         --channel_suffix "${var_suffix}"
         --aff_mode custom
@@ -71,7 +71,7 @@ run_batches() {
   done
 }
 
-run_batches bgtimevar
-run_batches spktimevar
+# run_batches bgtimevar
+# run_batches spktimevar
 run_batches bgposvar
 run_batches clusposvar

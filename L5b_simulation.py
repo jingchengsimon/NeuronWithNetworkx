@@ -1,28 +1,14 @@
 import argparse
 import itertools
 import json
-import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 
 from utils.cell_with_networkx import CellWithNetworkx
 from utils.replay_background_spikes import resolve_replay_section_synapse_csv
 
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "30"))
-MAX_PROCESS_COMBINATIONS = 64
-
-# distr add_inputs reads section_synapse_df.csv from the matching clus run (same epoch/path)
-SPAT_CONDITION_ORDER = ("clus", "distr")
-
-
-def ordered_spat_conditions(spat_list: list[str]) -> list[str]:
-    """Return spat conditions in dependency order: clus before distr."""
-    seen = set(spat_list)
-    ordered = [s for s in SPAT_CONDITION_ORDER if s in seen]
-    unknown = [s for s in spat_list if s not in SPAT_CONDITION_ORDER]
-    if unknown:
-        raise ValueError(f"Unknown spat_condition values: {unknown}")
-    return ordered
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "64"))
+MAX_PROCESS_COMBINATIONS = MAX_WORKERS
 
 
 # main function
@@ -76,18 +62,22 @@ def create_parser():
                         help='Number of connections per preunit (default: 3)')
     
     # Simulation parameters
-    parser.add_argument('--simu_condition', type=str, nargs='+', default=['invivo'],
+    parser.add_argument('--simulation_condition', dest='simu_cond',
+                        type=str, nargs='+', default=['invivo'],
                         choices=['invivo', 'invitro'],
                         help='Simulation condition (default: invivo)')
-    parser.add_argument('--spat_condition', type=str, nargs='+', default=['clus'],
+    parser.add_argument('--spatial_condition', dest='spat_cond',
+                        type=str, nargs='+', default=['clus'],
                         choices=['clus', 'distr'],
                         help='Spatial condition: clus (clustered) or distr (distributed). '
-                             'When both are given, clus always runs before distr (distr replays clus synapse layout). '
+                             'When both are given, they run serially in the given order. '
                              '(default: clus)')
-    parser.add_argument('--sec_type', type=str, nargs='+', default=['basal'],
+    parser.add_argument('--section_type', dest='sec_type',
+                        type=str, nargs='+', default=['basal'],
                         choices=['basal', 'apical'],
                         help='Section type (default: basal)')
-    parser.add_argument('--distance_to_root', type=int, nargs='+', default=[0],
+    parser.add_argument('--distance_to_root', dest='dis_to_root',
+                        type=int, nargs='+', default=[0],
                         help='Distance from clusters to root (default: 0)')
 
     # Simulation modes
@@ -203,137 +193,73 @@ def create_parser():
 
 def build_cell(args):
     """Build and simulate cell with parameters from argparse"""
-    
-    # Extract parameters from args using getattr (more concise than individual assignments)
-    def get_param(name): return getattr(args, name)
-    
-    # Get epoch first for separator, then extract all parameters
-    epoch = get_param('epoch')
+
+    epoch = args.epoch
     print('\n' + '='*80)
     print(f'EPOCH {epoch}')
     print('='*80 + '\n')
-    
-    # Core parameters
-    NUM_SYN_BASAL_EXC = get_param('num_syn_basal_exc')
-    NUM_SYN_APIC_EXC = get_param('num_syn_apic_exc')
-    NUM_SYN_BASAL_INH = get_param('num_syn_basal_inh')
-    NUM_SYN_APIC_INH = get_param('num_syn_apic_inh')
-    NUM_SYN_SOMA_INH = get_param('num_syn_soma_inh')
-    SIMU_DURATION = get_param('simu_duration')
-    STIM_DURATION = get_param('stim_duration')
 
-    simu_condition = get_param('simu_condition')
-    spat_condtion = get_param('spat_condition')
-    basal_channel_type = get_param('basal_channel_type')
-    bg_exc_channel_type = get_param('bg_exc_channel_type')
-    sec_type = get_param('sec_type')
-    distance_to_root = get_param('distance_to_root')
-
-    num_clusters = get_param('num_clusters')
-    cluster_radius = get_param('cluster_radius')
-    num_conn_per_preunit = get_param('num_conn_per_preunit')
-    num_syn_per_clus = get_param('num_syn_per_clus')
-
-    bg_exc_freq = get_param('bg_exc_freq')
-    bg_inh_freq = get_param('bg_inh_freq')
-    input_ratio_basal_apic = get_param('input_ratio_basal_apic')
-
-    initW = get_param('initW')
-    use_fixedW = get_param('use_fixedW')
-    fixedW = get_param('fixedW')
-    num_func_group = get_param('num_func_group')
-    inh_delay = get_param('inh_delay')
-
-    num_stim = get_param('num_stim')
-    stim_time = get_param('stim_time')
-    num_trials = get_param('num_trials')
-    folder_tag = get_param('folder_tag')
-
-    channel_suffix_arg = get_param('channel_suffix')
-    with_ap = get_param('with_ap')
-    with_global_rec = get_param('with_global_rec')
-    expected = get_param('expected')
-    aff_mode = get_param('aff_mode')
-    aff_list = get_param('aff_list')
-    iter_step = get_param('iter_step')
-    epoch_mode = get_param('epoch_mode')
-    num_epochs = get_param('num_epochs')
-    num_batches = get_param('num_batches')
-    epochs_per_batch = get_param('epochs_per_batch')
-    start_epoch = get_param('start_epoch')
-    use_replay_bg = get_param('use_replay_bg')
-    replay_bg_csv_arg = get_param('replay_bg_csv')
-    
     # Random seeds: default to epoch if not set
     # bg_syn_pos_seed: synapse locations and background synapse weights
     # clus_syn_pos_seed: cluster assignment and clustered synapse weight overwrite
     # bg_spike_gen_seed: background (bg) spike generation (bg spike trains, pink noise)
     # clus_spike_gen_seed: cluster stimulus (stim times in generate_vecstim, preunit permutation)
-    bg_syn_pos_seed_arg = get_param('bg_syn_pos_seed')
-    clus_syn_pos_seed_arg = get_param('clus_syn_pos_seed')
-    syn_pos_seed_arg = get_param('syn_pos_seed')
-    bg_spike_gen_seed_arg = get_param('bg_spike_gen_seed')
-    clus_spike_gen_seed_arg = get_param('clus_spike_gen_seed')
-
-    bg_syn_pos_seed = bg_syn_pos_seed_arg if bg_syn_pos_seed_arg is not None else (
-        syn_pos_seed_arg if syn_pos_seed_arg is not None else epoch
+    bg_syn_pos_seed = args.bg_syn_pos_seed if args.bg_syn_pos_seed is not None else (
+        args.syn_pos_seed if args.syn_pos_seed is not None else epoch
     )
-    clus_syn_pos_seed = clus_syn_pos_seed_arg if clus_syn_pos_seed_arg is not None else (
-        syn_pos_seed_arg if syn_pos_seed_arg is not None else epoch
+    clus_syn_pos_seed = args.clus_syn_pos_seed if args.clus_syn_pos_seed is not None else (
+        args.syn_pos_seed if args.syn_pos_seed is not None else epoch
     )
-    bg_spike_gen_seed = bg_spike_gen_seed_arg if bg_spike_gen_seed_arg is not None else epoch
-    clus_spike_gen_seed = clus_spike_gen_seed_arg if clus_spike_gen_seed_arg is not None else epoch
+    bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
+    clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
 
-    if use_replay_bg:
-        replay_bg_csv = resolve_replay_section_synapse_csv(replay_bg_csv_arg)
-    else:
-        replay_bg_csv = None
+    replay_bg_csv = resolve_replay_section_synapse_csv(args.replay_bg_csv) if args.use_replay_bg else None
            
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
-    channel_suffix = channel_suffix_arg.strip()
+    channel_suffix = args.channel_suffix.strip()
     channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
-    channel_suffix += ''.join(['_ap' if with_ap else '', '_globrec' if with_global_rec else ''])
-    simu_folder = f'{sec_type}_range{distance_to_root}_{spat_condtion}_{simu_condition}{channel_suffix}'
-    if use_fixedW:
-        w_tag = format(fixedW, '.10g').replace('-', 'neg')
+    channel_suffix += ''.join(['_ap' if args.with_ap else '', '_globrec' if args.with_global_rec else ''])
+    simu_folder = f'{args.sec_type}_range{args.dis_to_root}_{args.spat_cond}_{args.simu_cond}{channel_suffix}'
+    if args.use_fixedW:
+        w_tag = format(args.fixedW, '.10g').replace('-', 'neg')
         simu_folder = f'{simu_folder}_fixedW{w_tag}'
 
     # Normalize folder tag
-    folder_tag = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else '100'
-    expected_suffix = '_expected' if expected else ''
+    folder_tag = str(int(args.folder_tag) % 100) if int(args.folder_tag) % 100 != 0 else '100'
+    expected_suffix = '_expected' if args.expected else ''
     folder_path = f'/G/results/simulation_singclus_supple_May26/{simu_folder}{expected_suffix}/{folder_tag}/{epoch}'
     # folder_path = Path('/G/results/simulation_multiclus_Oct25') / simu_folder / folder_tag / str(epoch)
 
     simulation_params = {
         'cell model': 'L5PN',
-        'NUM_SYN_BASAL_EXC': NUM_SYN_BASAL_EXC, 'NUM_SYN_APIC_EXC': NUM_SYN_APIC_EXC,
-        'NUM_SYN_BASAL_INH': NUM_SYN_BASAL_INH, 'NUM_SYN_APIC_INH': NUM_SYN_APIC_INH,
-        'NUM_SYN_SOMA_INH': NUM_SYN_SOMA_INH, 'SIMU DURATION': SIMU_DURATION,
-        'STIM DURATION': STIM_DURATION, 'simulation condition': simu_condition,
-        'synaptic spatial condition': spat_condtion, 'basal channel type': basal_channel_type,
-        'channel_suffix': channel_suffix_arg, 'section type': sec_type,
-        'distance from clusters to root': distance_to_root, 'number of clusters': num_clusters,
-        'cluster radius': cluster_radius, 'background excitatory frequency': bg_exc_freq,
-        'background inhibitory frequency': bg_inh_freq, 'input ratio of basal to apical': input_ratio_basal_apic,
-        'background excitatory channel type': bg_exc_channel_type, 'initial weight of AMPANMDA synapses': initW,
-        'use_fixedW': use_fixedW, 'fixedW': fixedW,
-        'number of functional groups': num_func_group, 'delay of inhibitory inputs': inh_delay,
-        'number of stimuli': num_stim, 'time point of stimulation': stim_time,
-        'number of connection per preunit': num_conn_per_preunit, 'number of synapses per cluster': num_syn_per_clus,
-        'number of trials': num_trials, 'syn_pos_seed': bg_syn_pos_seed,
+        'NUM_SYN_BASAL_EXC': args.num_syn_basal_exc, 'NUM_SYN_APIC_EXC': args.num_syn_apic_exc,
+        'NUM_SYN_BASAL_INH': args.num_syn_basal_inh, 'NUM_SYN_APIC_INH': args.num_syn_apic_inh,
+        'NUM_SYN_SOMA_INH': args.num_syn_soma_inh, 'SIMU DURATION': args.simu_duration,
+        'STIM DURATION': args.stim_duration, 'simulation condition': args.simu_cond,
+        'synaptic spatial condition': args.spat_cond, 'basal channel type': args.basal_channel_type,
+        'channel_suffix': args.channel_suffix, 'section type': args.sec_type,
+        'distance from clusters to root': args.dis_to_root, 'number of clusters': args.num_clusters,
+        'cluster radius': args.cluster_radius, 'background excitatory frequency': args.bg_exc_freq,
+        'background inhibitory frequency': args.bg_inh_freq, 'input ratio of basal to apical': args.input_ratio_basal_apic,
+        'background excitatory channel type': args.bg_exc_channel_type, 'initial weight of AMPANMDA synapses': args.initW,
+        'use_fixedW': args.use_fixedW, 'fixedW': args.fixedW,
+        'number of functional groups': args.num_func_group, 'delay of inhibitory inputs': args.inh_delay,
+        'number of stimuli': args.num_stim, 'time point of stimulation': args.stim_time,
+        'number of connection per preunit': args.num_conn_per_preunit, 'number of synapses per cluster': args.num_syn_per_clus,
+        'number of trials': args.num_trials, 'syn_pos_seed': bg_syn_pos_seed,
         'bg_syn_pos_seed': bg_syn_pos_seed, 'clus_syn_pos_seed': clus_syn_pos_seed,
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
-        'expected': expected, 'aff_mode': aff_mode, 'aff_list': aff_list, 'iter_step': iter_step,
-        'effective_iter_step': 1 if expected else iter_step,
-        'epoch_mode': epoch_mode,
-        'num_epochs': num_epochs,
-        'num_batches': num_batches,
-        'epochs_per_batch': epochs_per_batch,
-        'start_epoch': start_epoch,
-        'with_ap': with_ap, 'with_global_rec': with_global_rec,
-        'use_replay_bg': use_replay_bg,
+        'expected': args.expected, 'aff_mode': args.aff_mode, 'aff_list': args.aff_list, 'iter_step': args.iter_step,
+        'effective_iter_step': 1 if args.expected else args.iter_step,
+        'epoch_mode': args.epoch_mode,
+        'num_epochs': args.num_epochs,
+        'num_batches': args.num_batches,
+        'epochs_per_batch': args.epochs_per_batch,
+        'start_epoch': args.start_epoch,
+        'with_ap': args.with_ap, 'with_global_rec': args.with_global_rec,
+        'use_replay_bg': args.use_replay_bg,
         'replay_bg_csv': replay_bg_csv,
-        'segment_nmda_spike_rate_npz': 'segment_nmda_spike_rate.npz' if with_global_rec else None,
+        'segment_nmda_spike_rate_npz': 'segment_nmda_spike_rate.npz' if args.with_global_rec else None,
     }
 
     if not os.path.exists(folder_path):
@@ -343,55 +269,24 @@ def build_cell(args):
     with open(json_filename, 'w') as json_file:
         json.dump(simulation_params, json_file, indent=4)
 
-    cell1 = CellWithNetworkx(swc_file_path, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
-                            bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, with_ap, with_global_rec,
+    cell1 = CellWithNetworkx(swc_file_path, args.bg_exc_freq, args.bg_inh_freq, args.simu_duration, args.stim_duration, 
+                            bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, args.with_ap, args.with_global_rec,
                             replay_bg_csv=replay_bg_csv, clus_syn_pos_seed=clus_syn_pos_seed)
-    cell1.add_synapses(NUM_SYN_BASAL_EXC, NUM_SYN_APIC_EXC, NUM_SYN_BASAL_INH, NUM_SYN_APIC_INH, NUM_SYN_SOMA_INH)
+    cell1.add_synapses(args.num_syn_basal_exc, args.num_syn_apic_exc, args.num_syn_basal_inh,
+                       args.num_syn_apic_inh, args.num_syn_soma_inh)
     
-    cell1.assign_clustered_synapses(basal_channel_type, sec_type, distance_to_root, 
-                                    num_clusters, cluster_radius, num_stim, stim_time, 
-                                    spat_condtion, num_conn_per_preunit, num_syn_per_clus, folder_path) 
+    cell1.assign_clustered_synapses(args.basal_channel_type, args.sec_type, args.dis_to_root,
+                                    args.num_clusters, args.cluster_radius, args.num_stim, args.stim_time,
+                                    args.spat_cond, args.num_conn_per_preunit, args.num_syn_per_clus, folder_path)
 
-    cell1.add_inputs(folder_path, simu_condition, input_ratio_basal_apic, 
-                     bg_exc_channel_type, initW, num_func_group, inh_delay, num_trials,
-                     use_fixedW=use_fixedW, fixedW=fixedW,
-                     expected=expected, aff_mode=aff_mode, aff_list=aff_list, iter_step=iter_step)
+    cell1.add_inputs(folder_path, args.simu_cond, args.input_ratio_basal_apic,
+                     args.bg_exc_channel_type, args.initW, args.num_func_group, args.inh_delay, args.num_trials,
+                     use_fixedW=args.use_fixedW, fixedW=args.fixedW,
+                     expected=args.expected, aff_mode=args.aff_mode, aff_list=args.aff_list, iter_step=args.iter_step)
 
-def run_processes(args_list, epoch):
-    """Run multiple processes with different parameter sets"""
-    processes = []  # Create a new process list for each set of parameters
-    for args in args_list:
-        # Create a copy of args and set epoch
-        args_copy = argparse.Namespace(**vars(args))
-        args_copy.epoch = epoch
-        process = multiprocessing.Process(target=build_cell, args=(args_copy,))
-        processes.append(process)
-        process.start()
 
-    for process in processes:
-        process.join()  # Join each batch of processes before moving to the next parameter set
-
-def run_combination(combination_args):
-    """
-    Run combination of parameters.
-    """
-    simu_condition, spat_cond, sec_type, dis_to_root, epoch, base_args = combination_args
-
-    # Create a copy of base_args (which contains command-line arguments)
-    args = argparse.Namespace(**vars(base_args))
-
-    # Override with scalar values from the current combination.
-    args.simu_condition = simu_condition
-    args.spat_condition = spat_cond
-    args.sec_type = sec_type
-    args.distance_to_root = dis_to_root
-
-    run_processes([args], epoch)
-
-if __name__ == "__main__":
-    parser = create_parser()
-    args = parser.parse_args()  # Parse command-line arguments once
-
+def run_combination(args):
+    """Expand CLI arguments and run requested parameter combinations."""
     if args.epoch_mode == 'sing':
         if args.num_epochs <= 0:
             raise ValueError('num_epochs must be positive when epoch_mode is sing')
@@ -410,75 +305,48 @@ if __name__ == "__main__":
             end_epoch = start_epoch + args.epochs_per_batch
             epoch_ranges.append(range(start_epoch, end_epoch))
 
-    spat_conditions = ordered_spat_conditions(args.spat_condition)
     combos_per_epoch = (
-        len(args.simu_condition)
+        len(args.simu_cond)
         * len(args.sec_type)
-        * len(args.distance_to_root)
+        * len(args.dis_to_root)
     )
-    if combos_per_epoch > MAX_PROCESS_COMBINATIONS:
-        raise ValueError(
-            f'Parameter combinations per epoch/spat_condition exceed CPU core limit: '
-            f'{combos_per_epoch} > {MAX_PROCESS_COMBINATIONS}. '
-            f'Reduce simu_condition/sec_type/distance_to_root values.'
-        )
 
     for epoch_range in epoch_ranges:
         tasks_per_spat = len(epoch_range) * combos_per_epoch
         if tasks_per_spat > MAX_PROCESS_COMBINATIONS:
             raise ValueError(
-                f'Parameter combinations per epoch_range/spat_condition exceed CPU core limit: '
+                f'Parameter combinations per epoch_range/spatial_condition exceed CPU core limit: '
                 f'{tasks_per_spat} = {len(epoch_range)} epochs * {combos_per_epoch} combinations '
                 f'> {MAX_PROCESS_COMBINATIONS}. '
-                f'Reduce epochs_per_batch/num_epochs or parameter combinations.'
+                f'Reduce epochs_per_batch/num_epochs or simulation/section/distance combinations.'
             )
 
-        for spat_cond in spat_conditions:
-            combinations = [
-                (simu_condition, spat_cond, sec_type, dis_to_root, epoch, args)
-                for epoch in epoch_range
-                for simu_condition, sec_type, dis_to_root in itertools.product(
-                    args.simu_condition,
-                    args.sec_type,
-                    args.distance_to_root,
-                )
-            ]
+        for spat_cond in args.spat_cond:
+            combinations = []
+            for epoch in epoch_range:
+                for simu_cond, sec_type, dis_to_root in itertools.product(
+                    args.simu_cond, args.sec_type, args.dis_to_root
+                ):
+                    run_args = argparse.Namespace(**vars(args))
+                    run_args.epoch = epoch
+                    run_args.simu_cond = simu_cond
+                    run_args.spat_cond = spat_cond
+                    run_args.sec_type = sec_type
+                    run_args.dis_to_root = dis_to_root
+                    combinations.append(run_args)
+
             print(
                 f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
-                f'spat_condition={spat_cond} '
+                f'spatial_condition={spat_cond} '
                 f'({len(combinations)} combinations in parallel)'
             )
-            with ProcessPoolExecutor(max_workers=len(combinations)) as executor:
-                executor.map(run_combination, combinations)
+            with ProcessPoolExecutor(max_workers=min(MAX_WORKERS, len(combinations))) as executor:
+                executor.map(build_cell, combinations)
 
 
-    # multiprocessing.set_start_method('spawn', force=True) # Use spawn will initiate too many NEURON instances 
+if __name__ == "__main__":
+    parser = create_parser()
+    run_combination(parser.parse_args())
 
-    # # Running for multi-cluster analysis
-    # parser = create_parser()
-    # for sec_type in ['basal']: # ['basal', 'apical']
-    #     for spat_cond in ['clus', 'distr']: # ['clus', 'distr']
-    #         for dis_to_root in [0, 2]: # [0, 1, 2]
-    #             args_list = []
-    #             base_args = parser.parse_args([])
-    #             base_args.sec_type = sec_type
-    #             base_args.spat_condition = spat_cond
-    #             base_args.distance_to_root = dis_to_root
-    #             args_list.append(base_args)
-    #             for epoch in range(1, 6):
-    #                 run_processes(args_list, epoch)
 
-    #   python L5b_simulation.py \
-    #     --with_ap \
-    #     --aff_mode custom \
-    #     --aff_list 4 8 12 24 48 72 \
-    #     --simu_condition invivo \
-    #     --sec_type basal apical \
-    #     --distance_to_root 0 1 2 \
-    #     --spat_condition clus distr \
-    #     --epoch_mode multi \
-    #     --num_batches 10 \
-    #     --epochs_per_batch 10 \
-    #     --start_epoch 1 \
-    #     --bg_exc_freq 1.3
-
+    
