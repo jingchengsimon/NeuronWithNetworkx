@@ -13,7 +13,7 @@ fi
 run_batches() {
   local var_suffix="$1"
 
-  for spat_condition in clus distr; do
+  for spat_cond in clus distr; do
     local start=1
 
     while [[ "$start" -le "$TOTAL_EPOCHS" ]]; do
@@ -23,14 +23,14 @@ run_batches() {
         epochs_this_batch="$remain"
       fi
 
-      echo "Running ${var_suffix}/${spat_condition}: epochs ${start}..$((start + epochs_this_batch - 1))"
+      echo "Running ${var_suffix}/${spat_cond}: epochs ${start}..$((start + epochs_this_batch - 1))"
 
       common_args=(
         L5b_simulation.py
-        --simulation_condition invivo
-        --section_type basal apical
-        --spatial_condition "${spat_condition}"
-        --distance_to_root 1
+        --simu_cond invivo
+        --sec_type basal apical
+        --spat_cond "${spat_cond}"
+        --dis_to_root 1
         --channel_suffix "${var_suffix}"
         --aff_mode custom
         --aff_list 0 12 24 36 48 60 72

@@ -62,22 +62,18 @@ def create_parser():
                         help='Number of connections per preunit (default: 3)')
     
     # Simulation parameters
-    parser.add_argument('--simulation_condition', dest='simu_cond',
-                        type=str, nargs='+', default=['invivo'],
+    parser.add_argument('--simu_cond', type=str, nargs='+', default=['invivo'],
                         choices=['invivo', 'invitro'],
                         help='Simulation condition (default: invivo)')
-    parser.add_argument('--spatial_condition', dest='spat_cond',
-                        type=str, nargs='+', default=['clus'],
+    parser.add_argument('--spat_cond', type=str, nargs='+', default=['clus'],
                         choices=['clus', 'distr'],
                         help='Spatial condition: clus (clustered) or distr (distributed). '
                              'When both are given, they run serially in the given order. '
                              '(default: clus)')
-    parser.add_argument('--section_type', dest='sec_type',
-                        type=str, nargs='+', default=['basal'],
+    parser.add_argument('--sec_type', type=str, nargs='+', default=['basal'],
                         choices=['basal', 'apical'],
                         help='Section type (default: basal)')
-    parser.add_argument('--distance_to_root', dest='dis_to_root',
-                        type=int, nargs='+', default=[0],
+    parser.add_argument('--dis_to_root', type=int, nargs='+', default=[0],
                         help='Distance from clusters to root (default: 0)')
 
     # Simulation modes
@@ -315,10 +311,10 @@ def run_combination(args):
         tasks_per_spat = len(epoch_range) * combos_per_epoch
         if tasks_per_spat > MAX_PROCESS_COMBINATIONS:
             raise ValueError(
-                f'Parameter combinations per epoch_range/spatial_condition exceed CPU core limit: '
+                f'Parameter combinations per epoch_range/spat_cond exceed CPU core limit: '
                 f'{tasks_per_spat} = {len(epoch_range)} epochs * {combos_per_epoch} combinations '
                 f'> {MAX_PROCESS_COMBINATIONS}. '
-                f'Reduce epochs_per_batch/num_epochs or simulation/section/distance combinations.'
+                f'Reduce epochs_per_batch/num_epochs or simu/sec/dis combinations.'
             )
 
         for spat_cond in args.spat_cond:
@@ -337,7 +333,7 @@ def run_combination(args):
 
             print(
                 f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
-                f'spatial_condition={spat_cond} '
+                f'spat_cond={spat_cond} '
                 f'({len(combinations)} combinations in parallel)'
             )
             with ProcessPoolExecutor(max_workers=min(MAX_WORKERS, len(combinations))) as executor:
