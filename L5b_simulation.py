@@ -424,22 +424,32 @@ if __name__ == "__main__":
         )
 
     for epoch_range in epoch_ranges:
-        for epoch in epoch_range:
-            for spat_cond in spat_conditions:
-                combinations = [
-                    (simu_condition, spat_cond, sec_type, dis_to_root, epoch, args)
-                    for simu_condition, sec_type, dis_to_root in itertools.product(
-                        args.simu_condition,
-                        args.sec_type,
-                        args.distance_to_root,
-                    )
-                ]
-                print(
-                    f'Running epoch={epoch} spat_condition={spat_cond} '
-                    f'({len(combinations)} combinations in parallel)'
+        tasks_per_spat = len(epoch_range) * combos_per_epoch
+        if tasks_per_spat > MAX_PROCESS_COMBINATIONS:
+            raise ValueError(
+                f'Parameter combinations per epoch_range/spat_condition exceed CPU core limit: '
+                f'{tasks_per_spat} = {len(epoch_range)} epochs * {combos_per_epoch} combinations '
+                f'> {MAX_PROCESS_COMBINATIONS}. '
+                f'Reduce epochs_per_batch/num_epochs or parameter combinations.'
+            )
+
+        for spat_cond in spat_conditions:
+            combinations = [
+                (simu_condition, spat_cond, sec_type, dis_to_root, epoch, args)
+                for epoch in epoch_range
+                for simu_condition, sec_type, dis_to_root in itertools.product(
+                    args.simu_condition,
+                    args.sec_type,
+                    args.distance_to_root,
                 )
-                with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                    executor.map(run_combination, combinations)
+            ]
+            print(
+                f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
+                f'spat_condition={spat_cond} '
+                f'({len(combinations)} combinations in parallel)'
+            )
+            with ProcessPoolExecutor(max_workers=len(combinations)) as executor:
+                executor.map(run_combination, combinations)
 
 
     # multiprocessing.set_start_method('spawn', force=True) # Use spawn will initiate too many NEURON instances 
