@@ -356,14 +356,14 @@ def build_spike_rate_dataframe_across_ranges(
 
 
 def summarize_rates_by_range(df: pd.DataFrame) -> pd.DataFrame:
-    """Median and SEM across epochs and trials."""
+    """Mean and SEM across epochs and trials."""
     return (
         df.groupby(
             ["suffix", "condition", "spike_type", "sec_type", "range_idx", "aff_label"],
             as_index=False,
         )
         .agg(
-            rate_median=("rate_hz", "median"),
+            rate_mean=("rate_hz", "mean"),
             rate_sem=(
                 "rate_hz",
                 lambda s: float(np.std(s, ddof=1) / np.sqrt(len(s))) if len(s) > 1 else 0.0,
@@ -390,7 +390,7 @@ def _lookup_rate(
     ]
     if sub.empty:
         return np.nan, np.nan
-    return float(sub["rate_median"].iloc[0]), float(sub["rate_sem"].iloc[0])
+    return float(sub["rate_mean"].iloc[0]), float(sub["rate_sem"].iloc[0])
 
 
 def _draw_basal_apical_range_panel(
