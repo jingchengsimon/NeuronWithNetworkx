@@ -6,7 +6,6 @@ from neuron import gui, h
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import json
 import itertools
 import os
 import random
@@ -22,18 +21,15 @@ from utils.replay_layout_from_csv import populate_section_synapse_df_from_csv, r
 from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_soma, recur_dist_to_root
 from utils.nmda_detection_utils import batch_nmda_spike_rates_from_seg_v_array, DEFAULT_V_THRESH_MV, DEFAULT_MIN_DURATION_MS
 from utils.generate_stim_utils import generate_indices, generate_vecstim
-from utils.visualize_utils import visualize_synapses
 
 warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
-MAX_WORKERS_SYNAPSE = int(os.environ.get("MAX_WORKERS_SYNAPSE", "30"))
-
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
                  bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed=None, with_ap=False, with_global_rec=False,
-                 replay_bg_csv=None, clus_syn_pos_seed=None):
+                 replay_bg_csv=None, clus_syn_pos_seed=None, max_workers_synapse=30):
         """
         Initialize cell with networkx structure.
         
@@ -86,6 +82,7 @@ class CellWithNetworkx:
         self.clus_spike_gen_seed = clus_spike_gen_seed
         
         self.replay_bg_csv = replay_bg_csv  # resolved path to section_synapse_df.csv or None
+        self.max_workers_synapse = max_workers_synapse
         self._replay_exc_map = None # filled in add_synapses when replay; avoids second CSV read in add_inputs
         self._replay_inh_map = None
         self.rnd = np.random.default_rng(bg_syn_pos_seed)  # For synapse position selection
@@ -221,7 +218,7 @@ class CellWithNetworkx:
             with self.lock:
                 self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame([data_to_append], dtype=object)], ignore_index=True)
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS_SYNAPSE) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers_synapse) as executor:
             list(tqdm(executor.map(generate_synapse, range(num_syn)), total=num_syn))
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type, dis_to_root, 
@@ -696,7 +693,7 @@ class CellWithNetworkx:
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
                                     self.bg_syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-                                    MAX_WORKERS_SYNAPSE,
+                                    self.max_workers_synapse,
                                     replay_exc_by_key=replay_exc_map,
                                     use_fixedW=self.use_fixedW, fixedW=self.fixedW)
         
@@ -735,7 +732,7 @@ class CellWithNetworkx:
                         add_background_inh_inputs(self.section_synapse_df, self.syn_param_inh, self.SIMU_DURATION, self.FREQ_INH,  
                                                 self.inh_delay, self.bg_spike_gen_seed, spat_condition, num_clus_condition,
                                                 section_synapse_df_clus, num_activated_preunit_idx,
-                                                MAX_WORKERS_SYNAPSE,
+                                                self.max_workers_synapse,
                                                 replay_inh_by_key=replay_inh_map)
                 
                 for num_trial in range(num_trials):

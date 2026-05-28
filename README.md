@@ -33,6 +33,10 @@ Key CLI arguments (see `python L5b_simulation.py --help` for full list):
 | `--with_ap` | `False` | Enable Na/Ca channels (action potentials) |
 | `--with_global_rec` | `False` | Record voltage/current at every segment |
 | `--use_replay_bg` | `False` | Replay background spikes from a reference run |
+| `--num_epochs` | `1` | Number of epochs (`start_epoch` .. `start_epoch + num_epochs - 1`) |
+| `--start_epoch` | `1` | First epoch index |
+| `--max_workers_epoch` | `20` | Max parallel `build_cell` processes per `spat_cond` |
+| `--max_workers_synapse` | `30` | Max threads per process for synapse/input prep |
 
 ---
 
@@ -104,7 +108,18 @@ Step 5: Save outputs
 
 ### Parallel Execution
 
-The `__main__` block sweeps parameter combinations (`sec_type × distance_to_root × epoch`) in parallel via `ProcessPoolExecutor`. Within each process, synapse creation uses `ThreadPoolExecutor` for data preparation, but `h.run()` always executes on the main thread (NEURON is not thread-safe).
+`run_combination()` expands all tasks for each `spat_cond` **serially** (`clus` before `distr`):
+
+```
+epoch × simu_cond × sec_type × dis_to_root  →  ProcessPoolExecutor(max_workers_epoch)
+```
+
+- **Process level** (`--max_workers_epoch`, default 20): one `build_cell` per process; tasks beyond the limit queue in the pool. Always use `list(executor.map(...))` so worker failures are not swallowed.
+- **Thread level** (`--max_workers_synapse`, default 30): within each process, `add_synapses()` and background input prep use `ThreadPoolExecutor`; `h.run()` always runs on the main thread (NEURON is not thread-safe).
+- **No batch / epoch_mode CLI** — epoch range is only `--num_epochs` + `--start_epoch`.
+- **Do not** mix `clus` and `distr` in the same process pool; distr replay depends on clus `section_synapse_df.csv`.
+
+Batch var experiments: see `run_var_exp.sh` (single invocation with `--spat_cond clus distr --num_epochs 100`).
 
 ---
 

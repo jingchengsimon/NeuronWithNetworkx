@@ -124,7 +124,39 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 ---
 
-## 8  环境注意
+## 8  并行调度
+
+`L5b_simulation.py` 的 `run_combination()` 负责参数展开与进程池调度。**无 epoch_mode / batch 分批**——仅用 `--num_epochs` + `--start_epoch` 定义 epoch 范围。
+
+### 两层并发（均由 CLI 控制）
+
+| CLI 参数 | 默认 | 作用域 |
+|----------|------|--------|
+| `--max_workers_epoch` | 20 | `ProcessPoolExecutor`：同一 `spat_cond` 内并行 `build_cell` 进程数 |
+| `--max_workers_synapse` | 30 | `ThreadPoolExecutor`：单进程内突触创建 / 背景输入 prep 线程数 |
+
+- `max_workers_synapse` 经 `build_cell()` → `CellWithNetworkx(max_workers_synapse=...)` → `add_synapses()` / `add_inputs()` → `add_inputs_utils`。
+- **禁止**用环境变量或模块级常量替代上述 CLI 默认值（除非脚本如 `run_var_exp.sh` 显式转发）。
+
+### 任务展开顺序
+
+```
+for spat_cond in args.spat_cond:          # 串行：clus 全部完成后再 distr
+    flatten(epoch × simu_cond × sec_type × dis_to_root)
+    ProcessPoolExecutor(max_workers=max_workers_epoch).map(build_cell, ...)
+```
+
+- 同一 `spat_cond` 内所有 combination 一次提交；超出 `max_workers_epoch` 的任务在池中排队。
+- **`clus` 与 `distr` 不可混进同一 ProcessPool**——distr 依赖 clus 的 `section_synapse_df.csv`。
+- `executor.map` 必须 `list(...)`，否则 worker 异常可能静默丢失。
+
+### 内存粗估
+
+单 `build_cell` 进程 RSS 约 8 GiB（含 `with_global_rec` 时更高）。并发进程数 × 8 GiB 应低于可用 RAM。
+
+---
+
+## 9  环境注意
 
 - **不要 `pip install neuron`**：NEURON 需系统级安装 + mod 编译。
 - **mod 文件未纳入版本控制**：agent 无法运行仿真，可做代码分析 / 重构 / mock 测试。

@@ -51,7 +51,19 @@ after `h.run()` returns. Python GC of NEURON objects causes segfault.
 
 ## Parallelization Boundaries
 
-- `ProcessPoolExecutor` / `multiprocessing.Process`: **across** parameter combinations.
+- `ProcessPoolExecutor` / `multiprocessing.Process`: **across** parameter combinations within one `spat_cond`.
 - `ThreadPoolExecutor`: **within** one cell for data prep only (synapse creation, spike gen).
 - `h.run()`: **main thread only**. Never inside ThreadPoolExecutor.
 - Do not use `multiprocessing.set_start_method('spawn')` — creates excess NEURON instances.
+
+### Concurrency CLI (no epoch_mode / batch splitting)
+
+| CLI | Default | Controls |
+|-----|---------|----------|
+| `--max_workers_epoch` | 20 | `ProcessPoolExecutor` max processes per `spat_cond` |
+| `--max_workers_synapse` | 30 | `ThreadPoolExecutor` threads per process (`CellWithNetworkx.max_workers_synapse`) |
+
+- Epoch range: `--num_epochs` + `--start_epoch` only (no `--epoch_mode`, `--num_batches`, `--epochs_per_batch`).
+- `run_combination()`: for each `spat_cond` (serial), flatten all `epoch × simu_cond × sec_type × dis_to_root`, then one pool with `max_workers=args.max_workers_epoch`.
+- **Never** mix `clus` and `distr` in the same ProcessPool — distr replay depends on clus CSV.
+- Always `list(executor.map(...))` so worker failures propagate.

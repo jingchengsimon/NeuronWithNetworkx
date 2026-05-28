@@ -11,6 +11,7 @@ alwaysApply: true
 - `SIMU_DURATION`, `STIM_DURATION` — durations (ms). ALL_CAPS in CLI / build_cell scope.
 - `initW`, `fixedW` — synaptic weight params (µS). camelCase is legacy; keep as-is.
 - `syn_pos_seed`, `bg_spike_gen_seed`, `clus_spike_gen_seed` — three orthogonal seeds. Never rename.
+- `max_workers_epoch`, `max_workers_synapse` — CLI parallel limits (defaults 20 / 30). Passed to process pool and `CellWithNetworkx`.
 - `sec_syn_bg_exc_df` — filtered DataFrame slice: `sec`=section, `syn`=synapse, `bg`=background, `exc`=excitatory.
 - `spk_rnd`, `loc_rnd`, `clus_loc_rnd` — RNG instances. Prefix indicates purpose (spike / location / cluster-location).
 

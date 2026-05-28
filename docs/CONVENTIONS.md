@@ -155,6 +155,10 @@ with_global_rec                     : bool
 use_replay_bg                       : bool
 replay_bg_csv                       : str | null
 segment_nmda_spike_rate_npz         : str | null
+num_epochs                          : int
+start_epoch                         : int
+max_workers_epoch                   : int
+max_workers_synapse                 : int
 ```
 
 ---
@@ -212,3 +216,7 @@ segment_nmda_spike_rate_npz         : str | null
 | `--use_replay_bg` | `replay_bg_csv` | replay pipeline activation |
 | `--use_fixedW` | `use_fixedW` | weight mode switch |
 | `--fixedW` | `fixedW` | fixed weight value (µS) |
+| `--num_epochs` | `num_epochs` | epoch count in `run_combination()` |
+| `--start_epoch` | `start_epoch` | first epoch index |
+| `--max_workers_epoch` | `max_workers_epoch` | `ProcessPoolExecutor` per `spat_cond` |
+| `--max_workers_synapse` | `max_workers_synapse` | `CellWithNetworkx(max_workers_synapse=...)` → thread pools |

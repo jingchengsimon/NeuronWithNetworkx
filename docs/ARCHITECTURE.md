@@ -5,7 +5,7 @@
 ## 1  模块依赖图
 
 ```
-L5b_simulation.py (CLI + 并行调度)
+L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_workers_synapse)
   │
   └── utils/cell_with_networkx.py    ← CellWithNetworkx, h.run(), 输出保存
         ├── utils/graph_utils.py           ← 形态 → DiG, branch order
@@ -232,9 +232,46 @@ New run (--use_replay_bg)
 
 ---
 
-## 8  录制点一览
+## 9  并行调度（`L5b_simulation.py`）
 
-### 8.1  Standard Recording
+### 9.1  两层并发
+
+```
+run_combination(args)
+  │
+  ├─ for spat_cond in args.spat_cond:     ← 串行（clus → distr）
+  │     combinations = flatten(
+  │         epoch ∈ [start_epoch, start_epoch + num_epochs)
+  │         × simu_cond × sec_type × dis_to_root
+  │     )
+  │     ProcessPoolExecutor(max_workers=max_workers_epoch)
+  │       └─ build_cell(run_args)  × N
+  │             └─ CellWithNetworkx(..., max_workers_synapse=...)
+  │                   ├─ add_synapses()     → ThreadPoolExecutor(max_workers_synapse)
+  │                   └─ add_inputs()       → add_inputs_utils (same thread limit)
+  │                         └─ run_simulation()  ← 主线程 h.run()
+  │
+  └─ (无 epoch_mode / num_batches / 外部分批)
+```
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `--num_epochs` | 1 | 与 `--start_epoch` 共同定义 epoch 范围 |
+| `--start_epoch` | 1 | 起始 epoch 编号 |
+| `--max_workers_epoch` | 20 | 每个 `spat_cond` 内最大并行进程数 |
+| `--max_workers_synapse` | 30 | 每个进程内突触/输入 prep 最大线程数 |
+
+### 9.2  约束
+
+- `clus` 与 `distr` **不可**在同一 ProcessPool 中交错——distr 读取 clus 输出的 `section_synapse_df.csv`。
+- `list(executor.map(...))` 必须保留，确保子进程异常向上抛出。
+- RAM 粗估：并发进程数 × ~8 GiB/进程（`with_global_rec` 时更高）。
+
+---
+
+## 10  录制点一览
+
+### 10.1  Standard Recording
 
 | 变量 | 位置 | NEURON ref |
 |------|------|------------|
@@ -246,7 +283,7 @@ New run (--use_replay_bg)
 | `tuft_v` | apic[67](0.5) | `_ref_v` |
 | `soma_i` | SEClamp @ soma(0.5) | `_ref_i` |
 
-### 8.2  Per-cluster Recording
+### 10.2  Per-cluster Recording
 
 对每个 cluster (前 `num_clusters_sampled` 个)：
 - `dend_v`: cluster center segment 膜电位
@@ -254,12 +291,12 @@ New run (--use_replay_bg)
 - `dend_nmda_i`, `dend_ampa_i`: NMDA/AMPA 分量之和
 - `dend_nmda_g`, `dend_ampa_g`: NMDA/AMPA 电导之和
 
-### 8.3  Background Current Recording
+### 10.3  Background Current Recording
 
 - section_id 71 上所有 exc synapses 的 `i_NMDA` / `i_AMPA` 平均值 → `basal_bg_i_*`
 - section_id 152 上所有 exc synapses 的 `i_NMDA` / `i_AMPA` 平均值 → `tuft_bg_i_*`
 
-### 8.4  Global Recording (`with_global_rec=True`)
+### 10.4  Global Recording (`with_global_rec=True`)
 
 - `seg_v_array`: 所有 non-axon segments 的膜电位
 - `seg_ina_array`: 所有 non-axon segments 的 Na 电流

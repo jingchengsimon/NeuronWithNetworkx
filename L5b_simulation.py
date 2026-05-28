@@ -7,9 +7,6 @@ from concurrent.futures import ProcessPoolExecutor
 from utils.cell_with_networkx import CellWithNetworkx
 from utils.replay_background_spikes import resolve_replay_section_synapse_csv
 
-# test for git
-MAX_WORKERS_EPOCH = int(os.environ.get("MAX_WORKERS_EPOCH", "20"))
-
 # main function
 swc_file_path = './modelFile/cell1.asc'
 
@@ -90,18 +87,14 @@ def create_parser():
                              'This list is used within each run and does not expand parameter combinations.')
     parser.add_argument('--iter_step', type=int, default=2,
                         help='Step size for aff_mode linear/curve. Ignored by full; forced to 1 when --expected is set (default: 2)')
-    parser.add_argument('--epoch_mode', type=str, default='sing',
-                        choices=['sing', 'multi'],
-                        help='Epoch execution mode: sing runs num_epochs epochs directly; '
-                             'multi runs num_batches batches with epochs_per_batch (default: sing)')
     parser.add_argument('--num_epochs', type=int, default=1,
-                        help='Number of epochs to run when epoch_mode is sing (default: 1)')
-    parser.add_argument('--num_batches', type=int, default=1,
-                        help='Number of batches when epoch_mode is multi (default: 1)')
-    parser.add_argument('--epochs_per_batch', type=int, default=1,
-                        help='Epochs per batch when epoch_mode is multi (default: 1)')
+                        help='Number of epochs to run (default: 1)')
     parser.add_argument('--start_epoch', type=int, default=1,
                         help='Starting epoch index for epoch execution (default: 1)')
+    parser.add_argument('--max_workers_epoch', type=int, default=20,
+                        help='Max parallel build_cell processes per spat_cond (default: 20)')
+    parser.add_argument('--max_workers_synapse', type=int, default=30,
+                        help='Max threads per process for synapse/input prep (default: 30)')
     
     # Background input parameters
     parser.add_argument('--bg_exc_freq', type=float, default=1.0,
@@ -246,11 +239,10 @@ def build_cell(args):
         'bg_spike_gen_seed': bg_spike_gen_seed, 'clus_spike_gen_seed': clus_spike_gen_seed,
         'expected': args.expected, 'aff_mode': args.aff_mode, 'aff_list': args.aff_list, 'iter_step': args.iter_step,
         'effective_iter_step': 1 if args.expected else args.iter_step,
-        'epoch_mode': args.epoch_mode,
         'num_epochs': args.num_epochs,
-        'num_batches': args.num_batches,
-        'epochs_per_batch': args.epochs_per_batch,
         'start_epoch': args.start_epoch,
+        'max_workers_epoch': args.max_workers_epoch,
+        'max_workers_synapse': args.max_workers_synapse,
         'with_ap': args.with_ap, 'with_global_rec': args.with_global_rec,
         'use_replay_bg': args.use_replay_bg,
         'replay_bg_csv': replay_bg_csv,
@@ -266,7 +258,8 @@ def build_cell(args):
 
     cell1 = CellWithNetworkx(swc_file_path, args.bg_exc_freq, args.bg_inh_freq, args.simu_duration, args.stim_duration, 
                             bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, args.with_ap, args.with_global_rec,
-                            replay_bg_csv=replay_bg_csv, clus_syn_pos_seed=clus_syn_pos_seed)
+                            replay_bg_csv=replay_bg_csv, clus_syn_pos_seed=clus_syn_pos_seed,
+                            max_workers_synapse=args.max_workers_synapse)
     cell1.add_synapses(args.num_syn_basal_exc, args.num_syn_apic_exc, args.num_syn_basal_inh,
                        args.num_syn_apic_inh, args.num_syn_soma_inh)
     
@@ -282,46 +275,36 @@ def build_cell(args):
 
 def run_combination(args):
     """Expand CLI arguments and run requested parameter combinations."""
-    if args.epoch_mode == 'sing':
-        if args.num_epochs <= 0:
-            raise ValueError('num_epochs must be positive when epoch_mode is sing')
-        epoch_ranges = [
-            range(args.start_epoch, args.start_epoch + args.num_epochs)
-        ]
-    else:
-        if args.num_batches <= 0:
-            raise ValueError('num_batches must be positive when epoch_mode is multi')
-        if args.epochs_per_batch <= 0:
-            raise ValueError('epochs_per_batch must be positive when epoch_mode is multi')
+    if args.num_epochs <= 0:
+        raise ValueError('num_epochs must be positive')
+    if args.max_workers_epoch <= 0:
+        raise ValueError('max_workers_epoch must be positive')
+    if args.max_workers_synapse <= 0:
+        raise ValueError('max_workers_synapse must be positive')
 
-        epoch_ranges = []
-        for batch_idx in range(args.num_batches):
-            start_epoch = args.start_epoch + batch_idx * args.epochs_per_batch
-            end_epoch = start_epoch + args.epochs_per_batch
-            epoch_ranges.append(range(start_epoch, end_epoch))
+    epoch_range = range(args.start_epoch, args.start_epoch + args.num_epochs)
 
-    for epoch_range in epoch_ranges:
-        for spat_cond in args.spat_cond:
-            combinations = []
-            for epoch in epoch_range:
-                for simu_cond, sec_type, dis_to_root in itertools.product(
-                    args.simu_cond, args.sec_type, args.dis_to_root
-                ):
-                    run_args = argparse.Namespace(**vars(args))
-                    run_args.epoch = epoch
-                    run_args.simu_cond = simu_cond
-                    run_args.spat_cond = spat_cond
-                    run_args.sec_type = sec_type
-                    run_args.dis_to_root = dis_to_root
-                    combinations.append(run_args)
+    for spat_cond in args.spat_cond:
+        combinations = []
+        for epoch in epoch_range:
+            for simu_cond, sec_type, dis_to_root in itertools.product(
+                args.simu_cond, args.sec_type, args.dis_to_root
+            ):
+                run_args = argparse.Namespace(**vars(args))
+                run_args.epoch = epoch
+                run_args.simu_cond = simu_cond
+                run_args.spat_cond = spat_cond
+                run_args.sec_type = sec_type
+                run_args.dis_to_root = dis_to_root
+                combinations.append(run_args)
 
-            print(
-                f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
-                f'spat_cond={spat_cond} '
-                f'({len(combinations)} tasks, max_workers={MAX_WORKERS_EPOCH})'
-            )
-            with ProcessPoolExecutor(max_workers=MAX_WORKERS_EPOCH) as executor:
-                list(executor.map(build_cell, combinations))
+        print(
+            f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
+            f'spat_cond={spat_cond} '
+            f'({len(combinations)} tasks, max_workers_epoch={args.max_workers_epoch})'
+        )
+        with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
+            list(executor.map(build_cell, combinations))
 
 
 if __name__ == "__main__":

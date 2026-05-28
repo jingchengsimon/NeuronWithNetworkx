@@ -77,3 +77,10 @@ When touching weight-related code, verify:
 - [ ] `section_synapse_df['syn_w']` written in nS (= 1000 × µS)
 - [ ] `synapse.initW` set in µS
 - [ ] `netcon.weight[0] = 1` is a switch, not a weight value
+
+## Parallel Scheduling (`L5b_simulation.py`)
+
+- Epoch sweep: `--num_epochs` + `--start_epoch` only (no `--epoch_mode`, `--num_batches`, `--epochs_per_batch`).
+- Per `spat_cond` (serial): flatten `epoch × simu_cond × sec_type × dis_to_root` → one `ProcessPoolExecutor(max_workers_epoch)`.
+- Per process: synapse/input prep uses `ThreadPoolExecutor(max_workers_synapse)`; `h.run()` stays on main thread.
+- `clus` must finish entirely before `distr` starts (same invocation: `--spat_cond clus distr`).
