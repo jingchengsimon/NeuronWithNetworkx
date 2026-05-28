@@ -120,7 +120,7 @@ def _aff_activation_labels(simu_info: dict, n_aff: int) -> list[int]:
     num_preunit = int(num_syn * np.ceil(num_clusters / 3))
 
     if aff_mode == "full":
-        return [num_preunit]
+        return [0, num_preunit]
     if aff_mode == "custom":
         raise ValueError("aff_mode=custom but aff_list missing or wrong length in simulation_params.json")
     if aff_mode == "curve":
