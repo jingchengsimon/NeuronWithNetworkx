@@ -7,9 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 from utils.cell_with_networkx import CellWithNetworkx
 from utils.replay_background_spikes import resolve_replay_section_synapse_csv
 
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "64"))
-MAX_PROCESS_COMBINATIONS = MAX_WORKERS
-
+MAX_WORKERS_EPOCH = int(os.environ.get("MAX_WORKERS_EPOCH", "20"))
 
 # main function
 swc_file_path = './modelFile/cell1.asc'
@@ -301,22 +299,7 @@ def run_combination(args):
             end_epoch = start_epoch + args.epochs_per_batch
             epoch_ranges.append(range(start_epoch, end_epoch))
 
-    combos_per_epoch = (
-        len(args.simu_cond)
-        * len(args.sec_type)
-        * len(args.dis_to_root)
-    )
-
     for epoch_range in epoch_ranges:
-        tasks_per_spat = len(epoch_range) * combos_per_epoch
-        if tasks_per_spat > MAX_PROCESS_COMBINATIONS:
-            raise ValueError(
-                f'Parameter combinations per epoch_range/spat_cond exceed CPU core limit: '
-                f'{tasks_per_spat} = {len(epoch_range)} epochs * {combos_per_epoch} combinations '
-                f'> {MAX_PROCESS_COMBINATIONS}. '
-                f'Reduce epochs_per_batch/num_epochs or simu/sec/dis combinations.'
-            )
-
         for spat_cond in args.spat_cond:
             combinations = []
             for epoch in epoch_range:
@@ -334,10 +317,10 @@ def run_combination(args):
             print(
                 f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
                 f'spat_cond={spat_cond} '
-                f'({len(combinations)} combinations in parallel)'
+                f'({len(combinations)} tasks, max_workers={MAX_WORKERS_EPOCH})'
             )
-            with ProcessPoolExecutor(max_workers=min(MAX_WORKERS, len(combinations))) as executor:
-                executor.map(build_cell, combinations)
+            with ProcessPoolExecutor(max_workers=MAX_WORKERS_EPOCH) as executor:
+                list(executor.map(build_cell, combinations))
 
 
 if __name__ == "__main__":

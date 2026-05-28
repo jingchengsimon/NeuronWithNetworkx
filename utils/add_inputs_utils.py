@@ -1,6 +1,5 @@
 from neuron import h
 from concurrent.futures import ThreadPoolExecutor
-import multiprocessing
 from tqdm import tqdm
 import numpy as np
 import json
@@ -24,13 +23,13 @@ def _exc_init_w_distr_array(num_syn, initW, syn_pos_seed, use_fixedW, fixedW, *,
 def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_EXC, 
                               input_ratio_basal_apic, bg_exc_channel_type, initW, num_func_group, 
                               bg_syn_pos_seed, spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-                              replay_exc_by_key=None, use_fixedW=False, fixedW=0.0004):
+                              max_workers_synapse, replay_exc_by_key=None, use_fixedW=False, fixedW=0.0004):
 
     if replay_exc_by_key is not None:
         return _add_background_exc_inputs_replay(
             section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
             bg_syn_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-            replay_exc_by_key,
+            replay_exc_by_key, max_workers_synapse,
             use_fixedW=use_fixedW,
             fixedW=fixedW,
         )
@@ -137,7 +136,7 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         section_synapse_df.at[section.name, 'spike_train_bg'].append(list(spike_train_bg)) 
         section_synapse_df.at[section.name, 'netcon'] = netcon
 
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
         list(tqdm(executor.map(process_section, range(num_syn_bg_exc)), total=num_syn_bg_exc))
         # executor.map(process_section, range(num_syn_bg_exc))
 
@@ -147,7 +146,7 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
 def _add_background_exc_inputs_replay(
     section_synapse_df, syn_param_exc, bg_exc_channel_type, initW,
     bg_syn_pos_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
-    replay_exc_by_key,
+    replay_exc_by_key, max_workers_synapse,
     use_fixedW=False,
     fixedW=0.0004,
 ):
@@ -213,7 +212,7 @@ def _add_background_exc_inputs_replay(
         section_synapse_df.at[section.name, "spike_train_bg"].append(list(spike_train_bg))
         section_synapse_df.at[section.name, "netcon"] = netcon
 
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
         list(
             tqdm(
                 executor.map(process_section, range(num_syn_bg_exc)),
@@ -229,12 +228,12 @@ def _add_background_exc_inputs_replay(
 def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_INH, 
                               inh_delay, spike_gen_seed, spat_condition, num_clus_condition,
                               section_synapse_df_clus, num_activated_preunit_idx,
-                              replay_inh_by_key=None):  
+                              max_workers_synapse, replay_inh_by_key=None):  
     
     if replay_inh_by_key is not None:
         return _add_background_inh_inputs_replay(
             section_synapse_df, syn_param_inh, inh_delay,
-            replay_inh_by_key,
+            replay_inh_by_key, max_workers_synapse,
         )
 
     spk_rnd = np.random.default_rng(spike_gen_seed)  # Create a new random state
@@ -367,13 +366,14 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
         section_synapse_df.at[section.name, 'spike_train_bg'].append(list(spike_train_bg))
         section_synapse_df.at[section.name, 'netcon'] = netcon
 
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
         executor.map(process_section, range(num_syn_bg_inh))
 
     return section_synapse_df
 
 
-def _add_background_inh_inputs_replay(section_synapse_df, syn_param_inh, inh_delay, replay_inh_by_key):
+def _add_background_inh_inputs_replay(section_synapse_df, syn_param_inh, inh_delay, replay_inh_by_key,
+                                      max_workers_synapse):
     """Use pre-recorded inh background spikes (no Poisson / no coupling to exc)."""
     e_syn, tau1, tau2, syn_weight = syn_param_inh
     sec_syn_bg_inh_df = section_synapse_df[section_synapse_df["type"] == "B"]
@@ -412,7 +412,7 @@ def _add_background_inh_inputs_replay(section_synapse_df, syn_param_inh, inh_del
         section_synapse_df.at[section.name, "spike_train_bg"] = [list(spike_train_bg)]
         section_synapse_df.at[section.name, "netcon"] = netcon
 
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
         list(
             tqdm(
                 executor.map(process_section, range(num_syn_bg_inh)),

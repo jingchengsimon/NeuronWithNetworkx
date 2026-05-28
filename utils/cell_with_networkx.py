@@ -28,7 +28,7 @@ warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
 
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "64"))
+MAX_WORKERS_SYNAPSE = int(os.environ.get("MAX_WORKERS_SYNAPSE", "30"))
 
 class CellWithNetworkx:
     def __init__(self, swc_file, bg_exc_freq, bg_inh_freq, SIMU_DURATION, STIM_DURATION, 
@@ -221,7 +221,7 @@ class CellWithNetworkx:
             with self.lock:
                 self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame([data_to_append], dtype=object)], ignore_index=True)
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS_SYNAPSE) as executor:
             list(tqdm(executor.map(generate_synapse, range(num_syn)), total=num_syn))
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type, dis_to_root, 
@@ -696,6 +696,7 @@ class CellWithNetworkx:
             add_background_exc_inputs(self.section_synapse_df, self.syn_param_exc, self.SIMU_DURATION, self.FREQ_EXC, 
                                     self.input_ratio_basal_apic, self.bg_exc_channel_type, self.initW, self.num_func_group,
                                     self.bg_syn_pos_seed, self.bg_spike_gen_seed, spat_condition, num_clus_condition, section_synapse_df_clus,
+                                    MAX_WORKERS_SYNAPSE,
                                     replay_exc_by_key=replay_exc_map,
                                     use_fixedW=self.use_fixedW, fixedW=self.fixedW)
         
@@ -734,6 +735,7 @@ class CellWithNetworkx:
                         add_background_inh_inputs(self.section_synapse_df, self.syn_param_inh, self.SIMU_DURATION, self.FREQ_INH,  
                                                 self.inh_delay, self.bg_spike_gen_seed, spat_condition, num_clus_condition,
                                                 section_synapse_df_clus, num_activated_preunit_idx,
+                                                MAX_WORKERS_SYNAPSE,
                                                 replay_inh_by_key=replay_inh_map)
                 
                 for num_trial in range(num_trials):
