@@ -197,9 +197,7 @@ class CellWithNetworkx:
             section_name = section.psection()['name']
             
             section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].iat[0]
-            # self.section_df[self.section_df['section_name'] == section_name]['section_id'].values[0]
             branch_idx = self.section_df.loc[self.section_df['section_name'] == section_name, 'branch_idx'].iat[0]
-            # self.section_df[self.section_df['section_name'] == section_name]['branch_idx'].values[0]   
 
             loc = self.rnd.uniform()
             segment_synapse = section(loc)
@@ -226,8 +224,6 @@ class CellWithNetworkx:
                                   spat_condition, num_conn_per_preunit, num_syn_per_clus,
                                   folder_path):
         
-        # self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
-
         if self.replay_bg_csv:
             replay_assign_cluster_metadata(
                 self,
@@ -266,7 +262,6 @@ class CellWithNetworkx:
         dist_thres_tuft = [0] + [sorted_tuft_distances[threshold - 1] for threshold in num_syn_thres 
                                  if threshold <= len(sorted_tuft_distances)] + [max(sorted_tuft_distances)]
 
-        # 
         num_conn_per_preunit = min(num_conn_per_preunit, num_clusters) 
         num_preunit = num_syn_per_clus * np.ceil(num_clusters / 3).astype(int)
 
@@ -275,9 +270,7 @@ class CellWithNetworkx:
         if spat_condition == 'clus':            
             # Number of synapses in each cluster is not fixed
             indices = generate_indices(clus_loc_rnd, num_clusters, num_conn_per_preunit, num_preunit)
-            
             self.num_clusters_sampled = num_clusters
-
         elif spat_condition == 'distr':
             # num_pre*num_conn clus with 1 syn per 'cluster'
             num_clusters = num_preunit * num_conn_per_preunit
@@ -310,17 +303,10 @@ class CellWithNetworkx:
         for i in range(self.num_clusters):
 
             loop_count = 0
-            # clus_loc_rnd = np.random.RandomState(self.clus_syn_pos_seed + i)
 
             # Unassigned background synapses for surround synapses
             sec_syn_bg_exc_df = self.section_synapse_df[(self.section_synapse_df['type'] == 'A') & 
                                                         (self.section_synapse_df['cluster_flag'] == -1)]
-                
-            # Unassigned background synapses for center synapses
-            # Define the concentration level for clus (6 clus on 6 branches / 1 branch)
-
-            basal_branch_idx_list = [40, 41, 41]
-            apic_branch_idx_list = [138, 138, 138]
 
             # Build DataFrame filter: common conditions + sec_type-specific conditions
             bg_exc_cond = (self.section_synapse_df['type'] == 'A') & (self.section_synapse_df['cluster_flag'] == -1)
@@ -342,9 +328,6 @@ class CellWithNetworkx:
 
                 # use the clus_loc_rnd for positioning
                 syn_ctr = sec_syn_bg_exc_ordered_df.iloc[clus_loc_rnd.choice(len(sec_syn_bg_exc_ordered_df))]
-                # syn_ctr = sec_syn_bg_exc_ordered_df.loc[clus_loc_rnd.choice(sec_syn_bg_exc_ordered_df.index)]
-                print('syn_ctr:', syn_ctr['segment_synapse'])
-                print('clus_branch_id:', syn_ctr['section_id_synapse'])
                 
                 # Assign the surround as clustered synapse only if more than 1 syn per cluster (dispersed: 1 syn per cluster)
                 if num_syn_per_clus > 1:
@@ -359,12 +342,9 @@ class CellWithNetworkx:
 
                     max_num_syn_per_clus = max(num_syn_per_clus, 100)
 
-                    # max_dis_mark_from_ctr = np.sort(self.rnd.exponential(cluster_radius, max_num_syn_per_cluster - 1))
                     try:
-                        # dis_mark_from_ctr = np.sort(clus_loc_rnd.exponential(cluster_radius, num_syn_per_clus - 1))
                         max_dis_mark_from_ctr = np.sort(clus_loc_rnd.exponential(cluster_radius, max_num_syn_per_clus - 1))
                     except ValueError:
-                        # dis_mark_from_ctr = np.sort(clus_loc_rnd.exponential(cluster_radius, 0))
                         max_dis_mark_from_ctr = np.sort(clus_loc_rnd.exponential(cluster_radius, 0))
 
                     # not enough synapses on the same section
@@ -375,7 +355,6 @@ class CellWithNetworkx:
                     exceed_flag = False
 
                     while len(dis_syn_from_ctr) < max_num_syn_per_clus - 1:
-                    # while len(dis_syn_from_ctr) < num_syn_per_clus - 1:
                 
                         # Check and empty syn_pre_surround_ctr and syn_suc_surround_ctr if they exist
                         if 'syn_pre_surround_ctr' in locals():
@@ -400,7 +379,6 @@ class CellWithNetworkx:
                                 syn_suc_surround_ctr = sec_syn_bg_exc_df[sec_syn_bg_exc_df['section_id_synapse'] == syn_suc_sec_id]
                                 dis_syn_suc_from_ctr = np.array((1 - syn_ctr['loc']) * syn_ctr_sec.L + syn_suc_surround_ctr['loc'] * syn_suc_sec.L)
                             except IndexError:
-                                # print(f"IndexError: syn_suc_sec_id: {syn_suc_sec_id}")
                                 pass
 
                         # the parent section of the center section
@@ -416,7 +394,6 @@ class CellWithNetworkx:
                                 # print(f"IndexError: syn_pre_sec_id: {syn_pre_sec_id}")
                                 pass
                         
-                        # print('ctr:', syn_ctr_sec_id, 'suc:', syn_suc_sec_id, 'pre:', syn_pre_sec_id)
 
                         arr_to_concat, df_to_concat = [], []
 
@@ -459,14 +436,7 @@ class CellWithNetworkx:
                     
                     max_clus_mem_idx = distance_synapse_mark_compare(dis_syn_from_ctr, max_dis_mark_from_ctr)
                     clus_mem_idx = clus_loc_rnd.choice(max_clus_mem_idx, num_syn_per_clus - 1, replace=False)
-                    # print('clus_mem_idx ver 1:', clus_mem_idx)
                     
-                    # if self.num_preunit < 72:
-                    #     clus_mem_max_size_idx = clus_loc_rnd.choice(max_clus_mem_idx, 72 - 1, replace=False)
-                    #     perm = np.random.permutation(num_syn_per_clus - 1)
-                    #     clus_mem_idx = clus_mem_max_size_idx[perm[:num_syn_per_clus - 1]]
-                    #     print('clus_mem_idx ver 2:', clus_mem_idx)
-
                     # assign the surround as clustered synapse
                     self.section_synapse_df.loc[syn_surround_ctr.iloc[clus_mem_idx].index, 'cluster_flag'] = 1
                     self.section_synapse_df.loc[syn_surround_ctr.iloc[clus_mem_idx].index, 'cluster_center_flag'] = 0
@@ -493,10 +463,6 @@ class CellWithNetworkx:
                 else:
                     print(np.unique(syn_ctr['section_id_synapse']))
                     
-            # print('cluster_id:', i, len(dis_syn_from_ctr), len(clus_mem_idx))
-            # print('num_syn_per_clus: ', len(self.section_synapse_df[(self.section_synapse_df['cluster_id'] == i)]['segment_synapse'].values))
-        
-            # print('next')
                 
     def _collect_segment_electrode_metadata(self):
         """
@@ -698,23 +664,11 @@ class CellWithNetworkx:
                                     use_fixedW=self.use_fixedW, fixedW=self.fixedW)
         
         for num_activated_preunit in self.num_activated_preunit_list:  
-
-            # if condition_met:
-            #     break  # End the whole loop if the condition has been met
-
             for num_stim in range(self.num_stim):
                 for num_trial in range(num_trials): # 1
 
-                    # if simu_condition == 'invivo':
-                    
-                    # spt_unit_list_list = []
-                    # for num_stim_idx in range(1, self.num_stim + 1):
-                    #     spt_unit_list = generate_vecstim(self.unit_ids, num_stim_idx, self.stim_time)
-                    #     spt_unit_list_list.append(spt_unit_list)
-
                     spt_unit_array = spt_unit_array_list[num_stim]
                     spt_unit_array_truncated = spt_unit_array[perm[:num_activated_preunit]]
-                    # spt_unit_list_truncated = spt_unit_list
 
                     if expected and num_activated_preunit > 0:
                         # For expected input
@@ -724,7 +678,6 @@ class CellWithNetworkx:
                                          self.initW, spt_unit_array_truncated, self.clus_syn_pos_seed, self.num_preunit,
                                          use_fixedW=self.use_fixedW, fixedW=self.fixedW)
                     
-                # for num_trial in range(num_trials): # 20
 
                     # Add background inputs for in vivo-like condition
                     if simu_condition == 'invivo':
@@ -766,7 +719,6 @@ class CellWithNetworkx:
             self._save_segment_nmda_spike_rate_npz(folder_path)
 
         self.section_synapse_df.to_csv(os.path.join(folder_path, 'section_synapse_df.csv'), index=False)
-        # visualize_synapses(self.section_synapse_df, '/G/results/visualization_simulation_singclus')
         
     def run_simulation(self, num_stim, num_aff_fiber, num_trial, folder_path):
 
@@ -775,7 +727,6 @@ class CellWithNetworkx:
         apic_ica = h.Vector().record(self.complex_cell.apic[121-85](1)._ref_ica)
 
         trunk_v = h.Vector().record(self.complex_cell.apic[3](0)._ref_v)
-        # basal_v = h.Vector().record(self.complex_cell.dend[71-1](0.5)._ref_v) # the 71th dendrite (tip), L: 178.7, order: 3, distance to root: 192.8
         basal_v = h.Vector().record(self.complex_cell.apic[71-1](0.8)._ref_v)
         tuft_v = h.Vector().record(self.complex_cell.apic[152-85](0.5)._ref_v) # the 152th dendrite (tip), L: 192.8, order: 3, distance to root: 565.0
 
@@ -832,10 +783,7 @@ class CellWithNetworkx:
         dend_i_ampa_list_list = []
         dend_g_nmda_list_list = []
         dend_g_ampa_list_list = []
-
-        print('num_syn_per_clus: ', [len(self.section_synapse_df[(self.section_synapse_df['cluster_id'] == i)]['segment_synapse'].values) for i in range(self.num_clusters_sampled)],
-              ' num_clus: ', len(self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1)]['cluster_id'].values), '\n')
-              
+    
         for cluster_id in range(self.num_clusters_sampled):
             
             # choose the center synapse of each cluster (spatial condition: clus)
@@ -912,18 +860,9 @@ class CellWithNetworkx:
                         vecs.append(h.Vector().record(exc_syn._ref_i_AMPA))
                 seg_inmda_vectors.append(vecs)
 
-        # netcons_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['netcon'].values[:3])
-        # spk_trains_list = list(self.section_synapse_df[(self.section_synapse_df['type'] == 'B')]['spike_train'].values[:3])
-
-        # spike_times = [h.Vector() for _ in netcons_list]
-        # for nc, spike_times_vec in zip(netcons_list, spike_times):
-        #     nc.record(spike_times_vec)
-
         # Simulate the full neuron for 1 seconds
-        time_start = time.time()
         h.tstop = self.SIMU_DURATION
         h.run()
-        print(f"Simulation time: {np.round(time.time() - time_start, 2)}")
 
         seg_inmda = None
         if self.with_global_rec and seg_inmda_vectors is not None:
@@ -935,22 +874,6 @@ class CellWithNetworkx:
                 else:
                     seg_inmda.append(np.zeros(n_t))
         
-        # for i in range(len(spike_times)):
-        #     try:
-        #         print(np.array(spike_times[i]))
-        #     except ValueError:
-        #         print([])
-
-        #     try:
-        #         print(spk_trains_list[i])
-        #     except ValueError:
-        #         print([])
-
-        # if np.array(soma_v).max() < 0:
-        #     return False
-
-        # visualize_morpho(self.section_synapse_df, soma_v, seg_v, folder_path)
-
         with self.lock:
 
             self.soma_v_array[:, num_stim, num_aff_fiber, num_trial] = np.array(soma_v)

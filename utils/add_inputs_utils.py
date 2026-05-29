@@ -459,34 +459,18 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
         for i in range(num_syn_clustered):
             # need this change updated to the global dataframe
             section = sec_syn_clustered_df.iloc[i]
-            initW_distr = get_next_initW(initW_distr_lists, section['pre_unit_id'])
-
+            
             if section['synapse'] is None:
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
-                # Comment out only for test
-                # variedW
-                # initW_distr = loc_rnd.choice(syn_w_distr, 1)[0]  
-                # initW_distr = initW_distr_array[section['pre_unit_id']]
-                
-                # fixedW
-                # initW_distr = initW 
-
+                initW_distr = get_next_initW(initW_distr_lists, section['pre_unit_id'])
                 syn_params['initW'] = initW_distr
-                # syn_params['ratio_NMDA_to_AMPA'] = 3.3
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], basal_channel_type)
             else:
                 synapse = section['synapse']
-                synapse.initW = initW_distr
 
             try:
-                # spt_unit = spt_unit_list[section['pre_unit_id']]
                 spt_unit_nonbg = spt_unit_array[spt_unit_array['pre_unit_id'] == section['pre_unit_id']]['spt_unit'][0]
 
-                # print(np.round(1000*synapse.initW, 4))
-                # initW_distr = get_next_initW(initW_distr_lists, section['pre_unit_id'])
-                # synapse.initW = initW_distr
-                # print(np.round(1000*synapse.initW, 4))
-                # section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr
 
             except IndexError:
                 spt_unit_nonbg = np.array([])
@@ -503,8 +487,6 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
             netstim = h.VecStim()
             netstim.play(h.Vector(spt_unit))
 
-            # netstim.play(h.Vector(np.array([])))
-
             ## turn off old netcons
             if section['netcon'] is not None:
                 section['netcon'].weight[0] = 0
@@ -515,19 +497,10 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
                 
             if section['synapse'] is None:
                 section_synapse_df.at[section.name, 'synapse'] = synapse
-            section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr # 1 uS = 1000 nS
+                section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr # 1 uS = 1000 nS
             section_synapse_df.at[section.name, 'netstim'] = netstim
             section_synapse_df.at[section.name, 'spike_train'].append(list(spt_unit_nonbg))
             section_synapse_df.at[section.name, 'netcon'] = netcon
-
-        # syn_w_values = section_synapse_df[(section_synapse_df['type'] == 'A') &
-        #                                  (section_synapse_df['cluster_flag'] == 1) & 
-        #                                 (section_synapse_df['cluster_id'] == j)]['syn_w'].to_numpy()
-        # # 假设每行打印8个值
-        # values_per_row = 8
-        # reshaped = syn_w_values.reshape(-1, values_per_row)
-        # for row in reshaped:
-        #     print(" ".join(f"{val:8.4f}" for val in row))
 
     return section_synapse_df
     
