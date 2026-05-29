@@ -179,6 +179,7 @@ def create_parser():
     
     return parser
 
+
 def build_cell(args):
     """Build and simulate cell with parameters from argparse"""
 
@@ -215,7 +216,7 @@ def build_cell(args):
     # Normalize folder tag
     folder_tag = str(int(args.folder_tag) % 100) if int(args.folder_tag) % 100 != 0 else '100'
     expected_suffix = '_expected' if args.expected else ''
-    folder_path = f'/G/results/simulation_singclus_supple_May26/{simu_folder}{expected_suffix}/{folder_tag}/{epoch}'
+    folder_path = f'/G/results/simulation_singclus_supple_Jun26/{simu_folder}{expected_suffix}/{folder_tag}/{epoch}'
     # folder_path = Path('/G/results/simulation_multiclus_Oct25') / simu_folder / folder_tag / str(epoch)
 
     simulation_params = {
