@@ -22,6 +22,19 @@ from utils.distance_utils import distance_synapse_mark_compare, recur_dist_to_so
 from utils.nmda_detection_utils import batch_nmda_spike_rates_from_seg_v_array, DEFAULT_V_THRESH_MV, DEFAULT_MIN_DURATION_MS
 from utils.generate_stim_utils import generate_indices, generate_vecstim
 
+
+def _synapse_placement_seed(bg_syn_pos_seed, region, sim_type, index):
+    """Deterministic seed per (region, type, index); independent of thread scheduling."""
+    region_code = {"basal": 11, "apical": 22, "soma": 33}[region]
+    type_code = 1 if sim_type == "exc" else 2
+    return (
+        bg_syn_pos_seed * 1_000_003
+        + region_code * 10_000
+        + type_code * 1_000
+        + index * 100_003
+    ) % (2**31)
+
+
 warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
 sys.setrecursionlimit(1000000)
 sys.path.insert(0, '/G/MIMOlab/Codes/NeuronWithNetworkx/mod')
@@ -191,21 +204,25 @@ class CellWithNetworkx:
         }
         sections, section_type = region_mapping[region]
         section_length = np.array(self.section_df.loc[self.section_df['section_type'] == section_type, 'length'])
+        weights = section_length / section_length.sum()
 
-        def generate_synapse(_):
-            section = random.choices(sections, weights=section_length)[0][0].sec # rnd does not have a choices method
+        def generate_synapse(i):
+            syn_rnd = np.random.default_rng(
+                _synapse_placement_seed(self.bg_syn_pos_seed, region, sim_type, i)
+            )
+            section = sections[syn_rnd.choice(len(sections), p=weights)][0].sec
             section_name = section.psection()['name']
             
             section_id_synapse = self.section_df.loc[self.section_df['section_name'] == section_name, 'section_id'].iat[0]
             branch_idx = self.section_df.loc[self.section_df['section_name'] == section_name, 'branch_idx'].iat[0]
 
-            loc = self.rnd.uniform()
+            loc = float(syn_rnd.uniform())
             segment_synapse = section(loc)
             
             distance_to_soma = recur_dist_to_soma(section, loc)
             distance_to_tuft = recur_dist_to_root(section, loc, self.root_tuft_sec) if section_id_synapse in self.sec_tuft_idx else -1 
 
-            data_to_append = {
+            return {
                 'section_id_synapse': section_id_synapse, 'section_synapse': section, 'segment_synapse': segment_synapse,
                 'loc': loc, 'type': type, 'distance_to_soma': distance_to_soma, 'distance_to_tuft': distance_to_tuft,
                 'cluster_flag': -1, 'cluster_center_flag': -1, 'cluster_id': -1, 'pre_unit_id': -1,
@@ -213,11 +230,13 @@ class CellWithNetworkx:
                 'netstim': None, 'netcon': None, 'spike_train': [], 'spike_train_bg': []
             }
 
-            with self.lock:
-                self.section_synapse_df = pd.concat([self.section_synapse_df, pd.DataFrame([data_to_append], dtype=object)], ignore_index=True)
-
         with ThreadPoolExecutor(max_workers=self.max_workers_synapse) as executor:
-            list(tqdm(executor.map(generate_synapse, range(num_syn)), total=num_syn))
+            rows = list(tqdm(executor.map(generate_synapse, range(num_syn)), total=num_syn))
+        if rows:
+            self.section_synapse_df = pd.concat(
+                [self.section_synapse_df, pd.DataFrame(rows, dtype=object)],
+                ignore_index=True,
+            )
 
     def assign_clustered_synapses(self, basal_channel_type, sec_type, dis_to_root, 
                                   num_clusters, cluster_radius, num_stim, stim_time, 

@@ -10,11 +10,16 @@ Verifies that (when all four seeds are explicit):
 
 Note on soma_v / voltage traces:
   add_background_exc_inputs uses ThreadPoolExecutor to attach VecStim/NetCon.
-  Worker count changes NetCon registration order in NEURON, so coincident events
-  can be processed in a different order. Spike trains saved to section_synapse_df
-  remain identical (per-synapse seeds), but soma_v may differ slightly at the
-  bit level across worker settings. Worker comparisons therefore check input
-  fingerprints only; seed-isolation runs use max_workers_synapse=1 throughout.
+  Worker count can change NetCon registration order in NEURON, so coincident
+  events may be processed in a different order. Input fingerprints (layout,
+  spike trains) must still match; soma_v bit-exact match across worker counts
+  is not required.
+
+Note on layout / add_synapses:
+  Synapse placement must use per-index seeds and preserve row order after
+  parallel map (see cell_with_networkx.add_single_synapse). Otherwise
+  max_workers_synapse changes both morphology and which spike seed binds to
+  which synapse.
 """
 from __future__ import annotations
 
