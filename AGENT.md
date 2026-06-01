@@ -113,9 +113,11 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 4. `arrays_to_save` 字典注册
 
 ### 添加新 CLI 参数
-1. `create_parser()` → `add_argument()`
-2. `build_cell()` 提取 → 传递
-3. `simulation_params` 字典注册
+1. `create_parser()` → `add_argument()` — **flag 名必须用 snake_case**（如 `--results_root`），禁止 `--results-root`
+2. `build_cell()` 提取 → 传递（`args.results_root` 等与 flag 同名）
+3. `simulation_params` 字典注册（JSON key 亦用 snake_case）
+
+输出根目录：`--results_root` → `{results_root}/{simu_folder}{_expected?}/{folder_tag}/{epoch}/`
 
 ### 添加新突触类型
 1. `section_synapse_df['type']` 新增标识

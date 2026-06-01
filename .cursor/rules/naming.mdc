@@ -6,6 +6,19 @@ alwaysApply: true
 
 # Naming Rules
 
+## Identifier Style (New Code — Required)
+
+All **newly introduced** identifiers must use **snake_case** (words separated by `_` only):
+
+- Python variables, function parameters, and attributes: `results_root`, `max_workers_epoch`
+- CLI / argparse flag names: `--results_root`, `--max_workers_epoch` — **never** `--results-root`
+- `argparse` `dest` must match the snake_case name (e.g. `dest='results_root'` or omit `dest` when the flag is already `--results_root`)
+- JSON keys written by this project (`simulation_params.json`, etc.): snake_case
+
+**Legacy exceptions (do not rename):** `initW`, `fixedW` (camelCase synaptic weight params).
+
+Existing code may still contain hyphenated CLI flags or other legacy names; when touching those files, migrate flags to snake_case if the change is already in scope.
+
 ## Variables & Parameters
 - `FREQ_EXC`, `FREQ_INH` — background firing rates (Hz). ALL_CAPS = simulation-level constants.
 - `SIMU_DURATION`, `STIM_DURATION` — durations (ms). ALL_CAPS in CLI / build_cell scope.
@@ -31,7 +44,8 @@ alwaysApply: true
 - `row_syn_key()` — unique synapse identifier for replay matching.
 
 ## File & Folder Naming
-- Output folder: `{sec_type}_range{dis_to_root}_{spat}_{simu}{suffix}_expected/{tag}/{epoch}`
+- Results root (CLI `--results_root`): e.g. `/G/results/simulation_singclus_supple_Jun26`
+- Output folder: `{results_root}/{sec_type}_range{dis_to_root}_{spat}_{simu}{suffix}_expected/{tag}/{epoch}`
 - Arrays: `soma_v_array.npy`, `dend_nmda_i_array.npy`, etc. — snake_case + `_array` suffix.
 - CSV: `section_synapse_df.csv` — exact name, downstream scripts depend on it.
 

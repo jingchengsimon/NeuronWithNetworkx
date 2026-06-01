@@ -137,6 +137,14 @@ def create_parser():
                         help='Number of trials (default: 1)')
     parser.add_argument('--folder_tag', type=str, default='1',
                         help='Folder tag for output (default: 1)')
+    parser.add_argument(
+        '--results_root',
+        type=str,
+        default='/G/results/simulation_singclus_supple_Jun26',
+        help='Root directory for simulation outputs. Each run writes to '
+             '{results_root}/{sec_type}_range{N}_{spat}_{simu}{suffix}/[{folder_tag}/]{epoch}/ '
+             '(default: /G/results/simulation_singclus_supple_Jun26)',
+    )
     # Random seeds - default to epoch value
     parser.add_argument('--bg_syn_pos_seed', type=int, default=None,
                         help='Random seed for background synapse positioning and background synapse weights. '
@@ -216,8 +224,8 @@ def build_cell(args):
     # Normalize folder tag
     folder_tag = str(int(args.folder_tag) % 100) if int(args.folder_tag) % 100 != 0 else '100'
     expected_suffix = '_expected' if args.expected else ''
-    folder_path = f'/G/results/simulation_singclus_supple_Jun26/{simu_folder}{expected_suffix}/{folder_tag}/{epoch}'
-    # folder_path = Path('/G/results/simulation_multiclus_Oct25') / simu_folder / folder_tag / str(epoch)
+    results_root = args.results_root.rstrip('/')
+    folder_path = f'{results_root}/{simu_folder}{expected_suffix}/{folder_tag}/{epoch}'
 
     simulation_params = {
         'cell model': 'L5PN',
@@ -226,7 +234,8 @@ def build_cell(args):
         'NUM_SYN_SOMA_INH': args.num_syn_soma_inh, 'SIMU DURATION': args.simu_duration,
         'STIM DURATION': args.stim_duration, 'simulation condition': args.simu_cond,
         'synaptic spatial condition': args.spat_cond, 'basal channel type': args.basal_channel_type,
-        'channel_suffix': args.channel_suffix, 'section type': args.sec_type,
+        'channel_suffix': args.channel_suffix, 'results_root': results_root,
+        'section type': args.sec_type,
         'distance from clusters to root': args.dis_to_root, 'number of clusters': args.num_clusters,
         'cluster radius': args.cluster_radius, 'background excitatory frequency': args.bg_exc_freq,
         'background inhibitory frequency': args.bg_inh_freq, 'input ratio of basal to apical': args.input_ratio_basal_apic,

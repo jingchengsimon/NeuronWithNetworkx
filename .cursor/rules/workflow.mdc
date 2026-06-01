@@ -45,9 +45,11 @@ perm = rnd.permutation(num_preunit)
 
 ## Output Directory Structure
 
+Set via CLI `--results_root` (default `/G/results/simulation_singclus_supple_Jun26`). Full path:
+
 ```
-/G/results/simulation_{type}_{date}/
-  {sec_type}_range{dis}__{spat}_{simu}{suffix}_expected/
+{results_root}/
+  {sec_type}_range{dis}_{spat}_{simu}{suffix}[_expected]/
     {folder_tag}/
       {epoch}/
         simulation_params.json

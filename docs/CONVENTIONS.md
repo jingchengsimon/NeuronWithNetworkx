@@ -203,8 +203,11 @@ max_workers_synapse                 : int
 
 ## 6  CLI 参数 → 内部变量映射
 
+**命名约定（新代码）**：所有 CLI flag、Python 变量、`simulation_params.json` 字段均使用 **snake_case**（下划线），例如 `--results_root`，禁止 `--results-root`。遗留例外：`initW`、`fixedW`。
+
 | CLI arg | 内部变量 | 传递给 |
 |---------|---------|--------|
+| `--results_root` | `results_root` | 输出路径前缀；写入 `simulation_params.json` |
 | `--num_syn_basal_exc` | `NUM_SYN_BASAL_EXC` | `add_synapses()` |
 | `--bg_exc_freq` | `bg_exc_freq` → `self.FREQ_EXC` | `add_background_exc_inputs()` |
 | `--initW` | `initW` → `self.initW` | `_exc_init_w_distr_array()` |
