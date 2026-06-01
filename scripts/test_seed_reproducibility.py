@@ -318,14 +318,18 @@ def main() -> int:
     print("PASS: aff_mode=custom is deterministic across worker settings (inputs)")
 
     # 4) Each seed should affect only its own domain.
+    # bg_syn_pos_seed  -> placement + exc syn_w (+ cluster pool); NOT bg spike times (bg_spike_gen_seed)
+    # bg_spike_gen_seed -> bg spike_train_bg per row index
+    # clus_syn_pos_seed  -> cluster assignment + perm
+    # clus_spike_gen_seed -> cluster stimulus times (spike_train on cluster synapses)
     baseline = fp_a
     seed_checks: List[Tuple[str, Dict[str, int], Dict[str, List[str]]]] = [
         (
             "bg_syn_pos_seed",
             {**FIXED_SEEDS, "bg_syn_pos_seed": FIXED_SEEDS["bg_syn_pos_seed"] + 1},
             {
-                "same": [],
-                "diff": ["layout", "cluster_layout", "bg_spikes_exc", "cluster_spikes", "soma_v"],
+                "same": ["bg_spikes_exc"],
+                "diff": ["layout", "cluster_layout", "cluster_spikes", "soma_v"],
             },
         ),
         (
