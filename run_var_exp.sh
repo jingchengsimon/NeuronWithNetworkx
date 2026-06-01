@@ -3,7 +3,7 @@ set -euo pipefail
 
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-100}"
 START_EPOCH="${START_EPOCH:-1}"
-MAX_WORKERS_EPOCH="${MAX_WORKERS_EPOCH:-20}"
+MAX_WORKERS_EPOCH="${MAX_WORKERS_EPOCH:-50}"
 MAX_WORKERS_SYNAPSE="${MAX_WORKERS_SYNAPSE:-30}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
@@ -34,21 +34,25 @@ run_var() {
   )
 
   if [[ "$var_suffix" == "bgtimevar" ]]; then
+    # Vary bg spike timing across epochs (bg_spike_gen_seed defaults to epoch).
     "$PYTHON_BIN" "${common_args[@]}" \
       --bg_syn_pos_seed 42 \
       --clus_syn_pos_seed 42 \
       --clus_spike_gen_seed 60
   elif [[ "$var_suffix" == "spktimevar" ]]; then
+    # Vary cluster stimulus times across epochs (clus_spike_gen_seed defaults to epoch).
     "$PYTHON_BIN" "${common_args[@]}" \
       --bg_syn_pos_seed 42 \
       --clus_syn_pos_seed 42 \
       --bg_spike_gen_seed 6
   elif [[ "$var_suffix" == "bgposvar" ]]; then
+    # Vary background synapse layout/weights across epochs (bg_syn_pos_seed defaults to epoch).
     "$PYTHON_BIN" "${common_args[@]}" \
       --clus_syn_pos_seed 42 \
       --bg_spike_gen_seed 6 \
       --clus_spike_gen_seed 60
   elif [[ "$var_suffix" == "clusposvar" ]]; then
+    # Vary cluster layout / perm across epochs (clus_syn_pos_seed defaults to epoch).
     "$PYTHON_BIN" "${common_args[@]}" \
       --bg_syn_pos_seed 42 \
       --bg_spike_gen_seed 6 \
@@ -59,7 +63,7 @@ run_var() {
   fi
 }
 
-# run_var bgtimevar
-# run_var spktimevar
+run_var bgtimevar
+run_var spktimevar
 run_var bgposvar
 run_var clusposvar

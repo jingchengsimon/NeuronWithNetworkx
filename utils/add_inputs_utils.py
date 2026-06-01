@@ -436,16 +436,17 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
     ])
 
     num_syn_bg_exc = num_clusters * num_syn_clustered_per_cluster
-    initW_distr_array = _exc_init_w_distr_array(
+    # invitro only: consumed when section['synapse'] is None (synapse/weight not pre-assigned)
+    initW_distr_array_invitro = _exc_init_w_distr_array(
         num_syn_bg_exc, initW, clus_syn_pos_seed, use_fixedW, fixedW, replace=True
     )
 
-    initW_distr_lists = np.split(initW_distr_array, num_preunit)
-    initW_distr_lists = [list(chunk) for chunk in initW_distr_lists]  # 转换成 list 方便 pop 操作
+    initW_distr_lists_invitro = np.split(initW_distr_array_invitro, num_preunit)
+    initW_distr_lists_invitro = [list(chunk) for chunk in initW_distr_lists_invitro]
 
-    def get_next_initW(initW_distr_lists, pre_unit_id):
-        if initW_distr_lists[pre_unit_id]:
-            return initW_distr_lists[pre_unit_id].pop(0)
+    def get_next_initW_invitro(initW_distr_lists_invitro, pre_unit_id):
+        if initW_distr_lists_invitro[pre_unit_id]:
+            return initW_distr_lists_invitro[pre_unit_id].pop(0)
         else:
             return 0
         
@@ -462,8 +463,10 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
             
             if section['synapse'] is None:
                 syn_params = json.load(open('./modelFile/AMPANMDA.json', 'r'))
-                initW_distr = get_next_initW(initW_distr_lists, section['pre_unit_id'])
-                syn_params['initW'] = initW_distr
+                initW_distr_invitro = get_next_initW_invitro(
+                    initW_distr_lists_invitro, section['pre_unit_id']
+                )
+                syn_params['initW'] = initW_distr_invitro
                 synapse = AMPANMDA(syn_params, section['loc'], section['section_synapse'], basal_channel_type)
             else:
                 synapse = section['synapse']
@@ -497,7 +500,7 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
                 
             if section['synapse'] is None:
                 section_synapse_df.at[section.name, 'synapse'] = synapse
-                section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr # 1 uS = 1000 nS
+                section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr_invitro  # 1 uS = 1000 nS
             section_synapse_df.at[section.name, 'netstim'] = netstim
             section_synapse_df.at[section.name, 'spike_train'].append(list(spt_unit_nonbg))
             section_synapse_df.at[section.name, 'netcon'] = netcon

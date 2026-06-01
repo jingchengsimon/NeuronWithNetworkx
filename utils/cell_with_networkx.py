@@ -42,9 +42,9 @@ class CellWithNetworkx:
             bg_syn_pos_seed: Random seed for synapse positioning and background synapse weights.
                 Should be fixed across simulations to maintain consistent morphology.
             bg_spike_gen_seed: Random seed for background (bg) spike generation (bg spike trains, pink noise). Used by add_background_*_inputs.
-            clus_spike_gen_seed: Random seed for cluster stimulus spike generation (stim times in
-                          generate_vecstim, preunit permutation).
-            clus_syn_pos_seed: Random seed for cluster assignment and clustered synapse weight overwrite.
+            clus_spike_gen_seed: Random seed for cluster stimulus times (generate_vecstim only).
+            clus_syn_pos_seed: Random seed for cluster assignment, preunit activation order (perm),
+                and invitro clustered synapse weight draw in add_clustered_inputs.
             with_ap: If True, use L5PCbiophys3withNaCa.hoc (with AP and Ca), 
                     else use L5PCbiophys3.hoc (default: False)
             with_global_rec: If True, record v/ina/iNMDA per segment (electrode), save seg_* arrays,
@@ -572,8 +572,9 @@ class CellWithNetworkx:
             else:
                 replay_exc_map, replay_inh_map = load_replay_spike_maps(self.replay_bg_csv)
 
-        # Cluster stimulus: use clus_spike_gen_seed for stim time generation and preunit order
+        # Cluster stimulus times: clus_spike_gen_seed; preunit activation order (perm): clus_syn_pos_seed
         clus_spk_rnd = np.random.RandomState(self.clus_spike_gen_seed)
+        clus_pos_rnd = np.random.RandomState(self.clus_syn_pos_seed)
 
         spt_unit_array_list = []
         stim_time_var = 5
@@ -581,7 +582,7 @@ class CellWithNetworkx:
             spt_unit_array = generate_vecstim(clus_spk_rnd, self.unit_ids, num_stim, self.stim_time, stim_time_var)
             spt_unit_array_list.append(spt_unit_array)
         
-        perm = clus_spk_rnd.permutation(self.num_preunit)
+        perm = clus_pos_rnd.permutation(self.num_preunit)
         
         ## Rearrange the perm to always start with the first syn of the first cluster
         pre_unit_id_first_syn = self.section_synapse_df[(self.section_synapse_df['cluster_center_flag'] == 1) &
