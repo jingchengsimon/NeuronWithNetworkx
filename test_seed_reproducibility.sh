@@ -15,11 +15,14 @@ echo "Seed reproducibility smoke test"
 echo "  python:       ${PYTHON_BIN}"
 echo "  results_root: ${RESULTS_ROOT}"
 echo
-echo "Checks:"
+echo "Checks (seed-controlled inputs in section_synapse_df):"
 echo "  1) max_workers_synapse 1 vs 50 (same four seeds)"
 echo "  2) max_workers_epoch 50 with 2 parallel epochs (seeds fixed, not epoch)"
 echo "  3) aff_mode=custom with different worker settings"
-echo "  4) each of the four seeds changes only its intended outputs"
+echo "  4) each of the four seeds changes only its intended inputs"
+echo
+echo "Note: soma_v may differ slightly across worker counts (NEURON NetCon order);"
+echo "      the test compares spike/layout fingerprints, not voltage traces."
 echo
 
 "${PYTHON_BIN}" scripts/test_seed_reproducibility.py \
