@@ -23,8 +23,8 @@ echo "  4) each seed changes only its domain:"
 echo "       bg_syn_pos_seed -> layout/weights/cluster; bg_spike_gen_seed -> bg spikes;"
 echo "       clus_syn_pos_seed -> cluster layout/perm; clus_spike_gen_seed -> cluster spikes"
 echo
-echo "Note: soma_v may differ slightly across worker counts (NEURON NetCon order);"
-echo "      the test compares spike/layout fingerprints, not voltage traces."
+echo "Note: seed checks use section_synapse_df fingerprints; soma_v is printed for info only"
+echo "      (default atol=1 mV if you add manual soma_v checks: --soma_v_atol 1.0)"
 echo
 
 "${PYTHON_BIN}" scripts/test_seed_reproducibility.py \
