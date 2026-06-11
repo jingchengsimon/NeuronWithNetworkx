@@ -425,22 +425,22 @@ def _batch_subdir_from_exp(sim_root: Path, exp_path: Path, rel_under_root: str) 
 def main():
     p = argparse.ArgumentParser(description="Batch trace visualization (from 3_trace_analysis.ipynb).")
     p.add_argument(
-        "--sim-root",
+        "--sim_root",
         default="/G/results/simulation_singclus_supple_Apr26",
         help="Directory containing per-condition subfolders.",
     )
     p.add_argument(
-        "--rel-path-template",
+        "--rel_path_template",
         default="{region}_range{range_idx}_clus_invitro_singclus_fixedW0.0004/1/{epoch}",
         help="Path under sim-root; placeholders: {region}, {range_idx}, {epoch}.",
     )
     p.add_argument("--region", default="basal")
-    p.add_argument("--range-idx", type=int, default=1)
+    p.add_argument("--range_idx", type=int, default=1)
     p.add_argument("--epochs", default="8", help="e.g. 21-30 or 21,22,23")
-    p.add_argument("--trial-idx", type=int, default=0)
-    p.add_argument("--t-start", type=float, default=480)
-    p.add_argument("--t-end", type=float, default=600)
-    p.add_argument("--dend-flag", default="area", choices=("peak", "area"))
+    p.add_argument("--trial_idx", type=int, default=0)
+    p.add_argument("--t_start", type=float, default=480)
+    p.add_argument("--t_end", type=float, default=600)
+    p.add_argument("--dend_flag", default="area", choices=("peak", "area"))
     p.add_argument(
         "--out_dir",
         type=str,

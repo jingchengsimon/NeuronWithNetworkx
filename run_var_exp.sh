@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TOTAL_EPOCHS="${TOTAL_EPOCHS:-100}"
+TOTAL_EPOCHS="${TOTAL_EPOCHS:-50}"
 START_EPOCH="${START_EPOCH:-1}"
-MAX_WORKERS_EPOCH="${MAX_WORKERS_EPOCH:-50}"
+MAX_WORKERS_EPOCH="${MAX_WORKERS_EPOCH:-40}"
 MAX_WORKERS_SYNAPSE="${MAX_WORKERS_SYNAPSE:-30}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+FIXED_CLUS_SPIKE_GEN_SEEDS="${FIXED_CLUS_SPIKE_GEN_SEEDS:-60 61 62}"
 
 if [[ ! -f "L5b_simulation.py" ]]; then
   echo "ERROR: run this script from the NeuronWithNetworkx repo root." >&2
@@ -14,6 +15,8 @@ fi
 
 run_var() {
   local var_suffix="$1"
+  local fixed_clus_spike_gen_seeds=()
+  read -r -a fixed_clus_spike_gen_seeds <<< "${FIXED_CLUS_SPIKE_GEN_SEEDS}"
 
   echo "Running ${var_suffix}: epochs ${START_EPOCH}..$((START_EPOCH + TOTAL_EPOCHS - 1))"
 
@@ -35,10 +38,11 @@ run_var() {
 
   if [[ "$var_suffix" == "bgtimevar" ]]; then
     # Vary bg spike timing across epochs (bg_spike_gen_seed defaults to epoch).
+    # Also repeat across fixed cluster-spike seeds to test fixed-seed sensitivity.
     "$PYTHON_BIN" "${common_args[@]}" \
       --bg_syn_pos_seed 42 \
       --clus_syn_pos_seed 42 \
-      --clus_spike_gen_seed 60
+      --clus_spike_gen_seed "${fixed_clus_spike_gen_seeds[@]}"
   elif [[ "$var_suffix" == "spktimevar" ]]; then
     # Vary cluster stimulus times across epochs (clus_spike_gen_seed defaults to epoch).
     "$PYTHON_BIN" "${common_args[@]}" \

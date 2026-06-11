@@ -143,7 +143,7 @@ def _resolve_aff_index_for_label(simu_info: dict, n_aff: int, aff_label: int) ->
         return len(labels) - 1
     raise ValueError(
         f"aff_label={aff_label} not found in activation list {labels}. "
-        "Use --aff-label matching simulation_params.json aff_list."
+        "Use --aff_label matching simulation_params.json aff_list."
     )
 
 
@@ -566,19 +566,19 @@ def main():
         description="AP/Ca spike rates at full activation, across distance ranges (fig1-style bars)."
     )
     parser.add_argument(
-        "--root-dir",
+        "--root_dir",
         default="/G/results/simulation_singclus_supple_May26",
         help="Parent directory with <sec_type>_range<N>_clus_invivo_<suffix> trees.",
     )
     parser.add_argument(
-        "--range-idxs",
+        "--range_idxs",
         nargs="+",
         type=int,
         default=[0, 1, 2],
         help="Distance-to-root indices (default: 0 1 2).",
     )
     parser.add_argument(
-        "--spat-conditions",
+        "--spat_conditions",
         nargs="+",
         choices=["clus", "distr"],
         default=["clus", "distr"],
@@ -590,14 +590,14 @@ def main():
         help="Channel suffix after invivo_, e.g. singclus_ap.",
     )
     parser.add_argument(
-        "--aff-label",
+        "--aff_label",
         type=int,
         default=DEFAULT_AFF_LABEL_FULL,
         help="Activated synapse count to analyze (default: 72).",
     )
-    parser.add_argument("--stim-idx", type=int, default=0)
+    parser.add_argument("--stim_idx", type=int, default=0)
     parser.add_argument(
-        "--output-dir",
+        "--output_dir",
         default="./results/ap_ca_spike",
         help="Directory for figure and CSV output.",
     )

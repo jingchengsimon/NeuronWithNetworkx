@@ -10,6 +10,13 @@ from utils.replay_background_spikes import resolve_replay_section_synapse_csv
 # main function
 swc_file_path = './modelFile/cell1.asc'
 
+SEED_FIELDS = (
+    ('bg_syn_pos_seed', 'bpos'),
+    ('clus_syn_pos_seed', 'cpos'),
+    ('bg_spike_gen_seed', 'bspk'),
+    ('clus_spike_gen_seed', 'cspk'),
+)
+
 def create_parser():
     """Create and configure argument parser with default values from utils"""
     parser = argparse.ArgumentParser(description='Neuron simulation parameters')
@@ -146,20 +153,26 @@ def create_parser():
              '(default: /G/results/simulation_singclus_supple_Jun26)',
     )
     # Random seeds - default to epoch value
-    parser.add_argument('--bg_syn_pos_seed', type=int, default=None,
+    parser.add_argument('--bg_syn_pos_seed', type=int, nargs='+', default=None,
                         help='Random seed for background synapse positioning and background synapse weights. '
+                             'Accepts one or more values; multiple values expand into separate runs. '
                              'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
-    parser.add_argument('--clus_syn_pos_seed', type=int, default=None,
+    parser.add_argument('--clus_syn_pos_seed', type=int, nargs='+', default=None,
                         help='Random seed for cluster assignment and clustered synapse weight overwrite. '
+                             'Accepts one or more values; multiple values expand into separate runs. '
                              'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
     parser.add_argument('--syn_pos_seed', type=int, default=None,
                         help='Deprecated shared synapse-position seed. Used as fallback for bg_syn_pos_seed '
                              'and clus_syn_pos_seed when those are not set (default: None)')
-    parser.add_argument('--bg_spike_gen_seed', type=int, default=None,
-                        help='Random seed for background (bg) spike generation (bg spike trains, pink noise). If None, uses epoch value (default: None)')
-    parser.add_argument('--clus_spike_gen_seed', type=int, default=None,
+    parser.add_argument('--bg_spike_gen_seed', type=int, nargs='+', default=None,
+                        help='Random seed for background (bg) spike generation (bg spike trains, pink noise). '
+                             'Accepts one or more values; multiple values expand into separate runs. '
+                             'If None, uses epoch value (default: None)')
+    parser.add_argument('--clus_spike_gen_seed', type=int, nargs='+', default=None,
                         help='Random seed for cluster stimulus spike generation (stim times in generate_vecstim, '
-                             'preunit permutation). If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) (default: None)')
+                             'preunit permutation). Accepts one or more values; multiple values expand into '
+                             'separate runs. If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) '
+                             '(default: None)')
     parser.add_argument(
         '--use_replay_bg',
         action='store_true',
@@ -215,6 +228,10 @@ def build_cell(args):
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
     channel_suffix = args.channel_suffix.strip()
     channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
+    seed_suffix_tag = getattr(args, 'seed_suffix_tag', '')
+    if seed_suffix_tag:
+        seed_suffix_tag = ('_' + seed_suffix_tag) if not seed_suffix_tag.startswith('_') else seed_suffix_tag
+        channel_suffix += seed_suffix_tag
     channel_suffix += ''.join(['_ap' if args.with_ap else '', '_globrec' if args.with_global_rec else ''])
     simu_folder = f'{args.sec_type}_range{args.dis_to_root}_{args.spat_cond}_{args.simu_cond}{channel_suffix}'
     if args.use_fixedW:
@@ -234,7 +251,8 @@ def build_cell(args):
         'NUM_SYN_SOMA_INH': args.num_syn_soma_inh, 'SIMU DURATION': args.simu_duration,
         'STIM DURATION': args.stim_duration, 'simulation condition': args.simu_cond,
         'synaptic spatial condition': args.spat_cond, 'basal channel type': args.basal_channel_type,
-        'channel_suffix': args.channel_suffix, 'results_root': results_root,
+        'channel_suffix': args.channel_suffix, 'seed_suffix_tag': seed_suffix_tag.lstrip('_'),
+        'effective_channel_suffix': channel_suffix.lstrip('_'), 'results_root': results_root,
         'section type': args.sec_type,
         'distance from clusters to root': args.dis_to_root, 'number of clusters': args.num_clusters,
         'cluster radius': args.cluster_radius, 'background excitatory frequency': args.bg_exc_freq,
@@ -293,24 +311,56 @@ def run_combination(args):
         raise ValueError('max_workers_synapse must be positive')
 
     epoch_range = range(args.start_epoch, args.start_epoch + args.num_epochs)
+    seed_values = {
+        field: (list(getattr(args, field)) if getattr(args, field) is not None else [None])
+        for field, _ in SEED_FIELDS
+    }
+    multi_seed_fields = {
+        field
+        for field, values in seed_values.items()
+        if len(values) > 1
+    }
+    seed_products = list(itertools.product(*(seed_values[field] for field, _ in SEED_FIELDS)))
 
     for spat_cond in args.spat_cond:
         combinations = []
-        for epoch in epoch_range:
-            for simu_cond, sec_type, dis_to_root in itertools.product(
-                args.simu_cond, args.sec_type, args.dis_to_root
-            ):
-                run_args = argparse.Namespace(**vars(args))
-                run_args.epoch = epoch
-                run_args.simu_cond = simu_cond
-                run_args.spat_cond = spat_cond
-                run_args.sec_type = sec_type
-                run_args.dis_to_root = dis_to_root
-                combinations.append(run_args)
+        for seed_combo in seed_products:
+            seed_kwargs = {
+                field: seed_combo[idx]
+                for idx, (field, _) in enumerate(SEED_FIELDS)
+            }
+            seed_tag_parts = [
+                f'{abbr}{seed_kwargs[field]}'
+                for field, abbr in SEED_FIELDS
+                if field in multi_seed_fields and seed_kwargs[field] is not None
+            ]
+            seed_suffix_tag = '_'.join(seed_tag_parts)
+
+            for epoch in epoch_range:
+                for simu_cond, sec_type, dis_to_root in itertools.product(
+                    args.simu_cond, args.sec_type, args.dis_to_root
+                ):
+                    run_args = argparse.Namespace(**vars(args))
+                    run_args.epoch = epoch
+                    run_args.simu_cond = simu_cond
+                    run_args.spat_cond = spat_cond
+                    run_args.sec_type = sec_type
+                    run_args.dis_to_root = dis_to_root
+                    for field, value in seed_kwargs.items():
+                        setattr(run_args, field, value)
+                    run_args.seed_suffix_tag = seed_suffix_tag
+                    combinations.append(run_args)
+
+        seed_summary = ', '.join(
+            f'{field}={seed_values[field]}'
+            for field, _ in SEED_FIELDS
+            if seed_values[field] != [None]
+        )
+        seed_summary = seed_summary or 'epoch-default seeds'
 
         print(
             f'Running epochs={epoch_range.start}..{epoch_range.stop - 1} '
-            f'spat_cond={spat_cond} '
+            f'spat_cond={spat_cond} seeds=({seed_summary}) '
             f'({len(combinations)} tasks, max_workers_epoch={args.max_workers_epoch})'
         )
         with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
@@ -320,6 +370,3 @@ def run_combination(args):
 if __name__ == "__main__":
     parser = create_parser()
     run_combination(parser.parse_args())
-
-
-    

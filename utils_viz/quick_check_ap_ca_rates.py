@@ -7,9 +7,9 @@ Example (50 epochs, folder_tag=1):
 
   cd /path/to/NeuronWithNetworkx
   python utils_viz/quick_check_ap_ca_rates.py \\
-    --root-dir /G/results/simulation_singclus_supple_May26 \\
-    --start-epoch 1 --num-epochs 50 \\
-    --folder-tag 1 --aff-label 72
+    --root_dir /G/results/simulation_singclus_supple_May26 \\
+    --start_epoch 1 --num_epochs 50 \\
+    --folder_tag 1 --aff_label 72
 """
 
 from __future__ import annotations
@@ -173,25 +173,25 @@ def main() -> None:
         description="Print per-epoch AP/Ca spike rates (Hz) for SSH quick checks."
     )
     parser.add_argument(
-        "--root-dir",
+        "--root_dir",
         default="/G/results/simulation_singclus_supple_May26",
         help="Parent dir with <sec>_range<N>_clus_invivo_<suffix> trees.",
     )
     parser.add_argument("--suffix", default="singclus_ap")
-    parser.add_argument("--folder-tag", default="1")
-    parser.add_argument("--start-epoch", type=int, default=1)
-    parser.add_argument("--num-epochs", type=int, default=50)
+    parser.add_argument("--folder_tag", default="1")
+    parser.add_argument("--start_epoch", type=int, default=1)
+    parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument(
         "--epochs",
         type=int,
         nargs="+",
         default=None,
-        help="Explicit epoch list (overrides start/num-epochs).",
+        help="Explicit epoch list (overrides start_epoch/num_epochs).",
     )
-    parser.add_argument("--aff-label", type=int, default=72)
-    parser.add_argument("--stim-idx", type=int, default=0)
+    parser.add_argument("--aff_label", type=int, default=72)
+    parser.add_argument("--stim_idx", type=int, default=0)
     parser.add_argument(
-        "--range-idxs",
+        "--range_idxs",
         nargs="+",
         type=int,
         default=[0, 1, 2],
@@ -203,7 +203,7 @@ def main() -> None:
         choices=["clus", "distr"],
     )
     parser.add_argument(
-        "--sec-types",
+        "--sec_types",
         nargs="+",
         default=["basal", "apical"],
         choices=["basal", "apical"],

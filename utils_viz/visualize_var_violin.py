@@ -12,8 +12,10 @@ from matplotlib.patches import Patch
 ANAL_LOCS: tuple[str, str] = ("basal", "apical")
 METRICS: tuple[str, str] = ("peak", "area")
 CONDITIONS: tuple[str, str] = ("clus", "distr")
-VAR_SUFFIXES: tuple[str, str, str, str] = (
-    "bgtimevar",
+VAR_SUFFIXES: tuple[str, ...] = (
+    "bgtimevar_cspk60",
+    "bgtimevar_cspk61",
+    "bgtimevar_cspk62",
     "spktimevar",
     "bgposvar",
     "clusposvar",
@@ -484,6 +486,50 @@ def _plot_multi_syn_line(
     ax.legend(frameon=False, loc="best")
 
 
+def _plot_multi_syn_variance_line(
+    ax: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    conditions: tuple[str, str] = CONDITIONS,
+) -> None:
+    color_map = {"clus": "tab:red", "distr": "tab:blue"}
+    syn_nums = sorted(int(x) for x in df["syn_num"].dropna().unique())
+    for cond in conditions:
+        variances: list[float] = []
+        x_valid: list[int] = []
+        for syn_num in syn_nums:
+            sub = df[(df["condition"] == cond) & (df["syn_num"] == syn_num)]
+            if sub.empty:
+                continue
+            epoch_values = (
+                sub.groupby("epoch", sort=True)["peak"]
+                .mean()
+                .to_numpy(dtype=float)
+            )
+            epoch_values = epoch_values[np.isfinite(epoch_values)]
+            if epoch_values.size == 0:
+                continue
+            ddof = 1 if epoch_values.size > 1 else 0
+            x_valid.append(syn_num)
+            variances.append(float(np.var(epoch_values, ddof=ddof)))
+
+        if not x_valid:
+            continue
+        ax.plot(
+            x_valid,
+            variances,
+            marker="o",
+            markersize=4.0,
+            linewidth=1.8,
+            color=color_map[cond],
+            label=cond,
+            zorder=3,
+        )
+    ax.set_xlabel("Syn num")
+    ax.set_xticks(syn_nums)
+    ax.legend(frameon=False, loc="best")
+
+
 def _style_axis(ax: plt.Axes, anal_loc: str, metric: str) -> None:
     ax.set_title(f"{anal_loc} | {metric}")
     ax.set_ylabel(_ylabel_for_anal_metric(anal_loc, metric))
@@ -499,9 +545,15 @@ def build_meta_figure(
     plot_violin: bool,
     suffix: str,
 ) -> plt.Figure:
-    fig, axes = plt.subplots(2, 2, figsize=(11.0, 8.0), sharex=False)
-    for row_idx, metric in enumerate(METRICS):
+    include_variance = len(syn_nums) > 1 and not plot_violin
+    if include_variance:
+        fig, axes = plt.subplots(4, 2, figsize=(11.0, 13.0), sharex=False)
+    else:
+        fig, axes = plt.subplots(2, 2, figsize=(11.0, 8.0), sharex=False)
+
+    for metric_idx, metric in enumerate(METRICS):
         for col_idx, anal_loc in enumerate(ANAL_LOCS):
+            row_idx = metric_idx * 2 if include_variance else metric_idx
             ax = axes[row_idx, col_idx]
             sub = df_suffix[(df_suffix["metric"] == metric) & (df_suffix["anal_loc"] == anal_loc)]
             if sub.empty:
@@ -525,7 +577,26 @@ def build_meta_figure(
                 _plot_multi_syn_line(ax, sub)
             _style_axis(ax, anal_loc, metric)
 
+            if include_variance:
+                var_ax = axes[row_idx + 1, col_idx]
+                if sub.empty:
+                    var_ax.text(
+                        0.5,
+                        0.5,
+                        "missing data",
+                        ha="center",
+                        va="center",
+                        transform=var_ax.transAxes,
+                        color="0.4",
+                    )
+                else:
+                    _plot_multi_syn_variance_line(var_ax, sub)
+                _style_axis(var_ax, anal_loc, f"{metric} variance")
+                var_ax.set_ylabel(f"Variance of {_ylabel_for_anal_metric(anal_loc, metric)}")
+
     plot_mode = "violin" if (len(syn_nums) == 1 or plot_violin) else "line+errorbar"
+    if include_variance:
+        plot_mode += "+variance"
     syn_text = ",".join(str(x) for x in syn_nums)
     fig.suptitle(
         f"{suffix} var meta | mode={plot_mode} | syn=[{syn_text}]",
@@ -591,15 +662,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Var meta EPSP figures from simulation folders. "
-            "One 2x2 figure per suffix (rows: peak/area; cols: basal/apical)."
+            "One figure per suffix; multi-syn line mode adds variance rows under the response rows."
         )
     )
     parser.add_argument(
-        "--root-dir",
+        "--root_dir",
         default="/G/results/simulation_singclus_supple_May26",
         help="Directory containing <anal_loc>_range<N>_clus/distr_invivo_<suffix> trees.",
     )
-    parser.add_argument("--range-idx", type=int, default=1, help="Range index N in path names.")
+    parser.add_argument(
+        "--range_idx",
+        type=int,
+        default=1,
+        help="Range index N in path names.",
+    )
     parser.add_argument(
         "--suffixes",
         nargs="+",
@@ -607,26 +683,20 @@ def parse_args() -> argparse.Namespace:
         help="Experiment suffixes; each suffix produces one meta figure.",
     )
     parser.add_argument(
-        "--syn-num",
-        type=int,
-        default=None,
-        help="Single synapse count (deprecated by --syn-nums).",
-    )
-    parser.add_argument(
-        "--syn-nums",
+        "--syn_nums",
         type=int,
         nargs="+",
         default=None,
-        help="Multiple synapse counts, e.g. --syn-nums 0 12 24 36 48 60 72. "
+        help="One or more synapse counts, e.g. --syn_nums 72 or --syn_nums 0 12 24 36 48 60 72. "
              "If omitted, use all available syn numbers in data.",
     )
     parser.add_argument(
-        "--plot-violin",
+        "--plot_violin",
         action="store_true",
-        help="When syn-nums has multiple values, use grouped violin instead of line+errorbar.",
+        help="When syn_nums has multiple values, use grouped violin instead of line+errorbar+variance.",
     )
     parser.add_argument(
-        "--window-ms",
+        "--window_ms",
         nargs=2,
         type=float,
         default=[-20.0, 100.0],
@@ -634,12 +704,12 @@ def parse_args() -> argparse.Namespace:
         help="Time window around stimulation (ms).",
     )
     parser.add_argument(
-        "--output-dir",
+        "--output_dir",
         default="./results/violin_supple/var_meta",
         help="Directory for saved figures.",
     )
     parser.add_argument(
-        "--fig-format",
+        "--fig_format",
         choices=["pdf", "png"],
         default="pdf",
         help="Figure file format.",
@@ -656,8 +726,6 @@ def main() -> None:
     args = parse_args()
     if args.syn_nums is not None:
         syn_nums = tuple(sorted(dict.fromkeys(int(x) for x in args.syn_nums)))
-    elif args.syn_num is not None:
-        syn_nums = (int(args.syn_num),)
     else:
         syn_nums = None
 
