@@ -553,7 +553,7 @@ def build_meta_figure(
 
     for metric_idx, metric in enumerate(METRICS):
         for col_idx, anal_loc in enumerate(ANAL_LOCS):
-            row_idx = metric_idx * 2 if include_variance else metric_idx
+            row_idx = metric_idx
             ax = axes[row_idx, col_idx]
             sub = df_suffix[(df_suffix["metric"] == metric) & (df_suffix["anal_loc"] == anal_loc)]
             if sub.empty:
@@ -578,7 +578,7 @@ def build_meta_figure(
             _style_axis(ax, anal_loc, metric)
 
             if include_variance:
-                var_ax = axes[row_idx + 1, col_idx]
+                var_ax = axes[len(METRICS) + metric_idx, col_idx]
                 if sub.empty:
                     var_ax.text(
                         0.5,
