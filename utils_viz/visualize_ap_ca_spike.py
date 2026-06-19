@@ -47,6 +47,8 @@ DEFAULT_AP_THRESH_MV = -10.0
 DEFAULT_CA_V_THRESH_MV = DEFAULT_V_THRESH_MV
 DEFAULT_CA_MIN_DURATION_MS = DEFAULT_MIN_DURATION_MS
 DEFAULT_AFF_LABEL_FULL = 72
+DEFAULT_STIM_TIME_KEY = "time point of stimulation"
+DEFAULT_WINDOW_MS = (-20.0, 100.0)
 
 
 def _range_color_lists() -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]]]:
@@ -162,6 +164,17 @@ def count_ap_spikes(v_mV: np.ndarray, ap_thresh_mV: float = DEFAULT_AP_THRESH_MV
     return count
 
 
+def ap_spike_onset_indices(v_mV: np.ndarray, ap_thresh_mV: float = DEFAULT_AP_THRESH_MV) -> np.ndarray:
+    """Return sample indices where AP upward threshold crossings start."""
+    v = np.asarray(v_mV, dtype=np.float64).reshape(-1)
+    if v.size < 2:
+        return np.array([], dtype=int)
+    prev = v[:-1]
+    curr = v[1:]
+    crossings = (prev <= ap_thresh_mV) & (curr > ap_thresh_mV) & ((curr - prev) > 0)
+    return np.flatnonzero(crossings).astype(int) + 1
+
+
 def compute_ap_spike_rate_hz(
     v_mV: np.ndarray,
     sim_duration_ms: float,
@@ -171,6 +184,38 @@ def compute_ap_spike_rate_hz(
     if dur_s <= 0:
         return 0.0
     return float(count_ap_spikes(v_mV, ap_thresh_mV=ap_thresh_mV)) / dur_s
+
+
+def ca_spike_onset_indices(
+    v_mV: np.ndarray,
+    dt_s: float,
+    v_thresh_mV: float = DEFAULT_CA_V_THRESH_MV,
+    min_duration_ms: float = DEFAULT_CA_MIN_DURATION_MS,
+) -> np.ndarray:
+    """
+    Return onset sample indices for Ca/NMDA-style events.
+
+    The event criterion matches count_nmda_spikes: each connected run with
+    V > threshold and duration >= min_duration_ms counts once.  The onset is
+    the first sample in that qualifying run.
+    """
+    v = np.asarray(v_mV, dtype=np.float64).reshape(-1)
+    if v.size == 0:
+        return np.array([], dtype=int)
+    min_samples = max(1, int(np.ceil((min_duration_ms / 1000.0) / dt_s)))
+    onsets: list[int] = []
+    i = 0
+    while i < v.size:
+        if v[i] <= v_thresh_mV:
+            i += 1
+            continue
+        j = i + 1
+        while j < v.size and v[j] > v_thresh_mV:
+            j += 1
+        if (j - i) >= min_samples:
+            onsets.append(i)
+        i = j
+    return np.asarray(onsets, dtype=int)
 
 
 def compute_ca_spike_rate_hz(
@@ -187,6 +232,33 @@ def compute_ca_spike_rate_hz(
         v_thresh_mV=v_thresh_mV,
         min_duration_ms=min_duration_ms,
     )
+
+
+def _onset_times_ms(onset_indices: np.ndarray, dt_s: float) -> np.ndarray:
+    return np.asarray(onset_indices, dtype=np.float64) * dt_s * 1000.0
+
+
+def _stim_time_ms(simu_info: dict, stim_time_key: str = DEFAULT_STIM_TIME_KEY) -> float:
+    if stim_time_key not in simu_info:
+        raise KeyError(f"simulation_params.json missing key: {stim_time_key!r}")
+    return float(simu_info[stim_time_key])
+
+
+def _window_bounds_ms(
+    simu_info: dict,
+    window_ms: tuple[float, float],
+    stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+) -> tuple[float, float, float]:
+    stim_ms = _stim_time_ms(simu_info, stim_time_key=stim_time_key)
+    start_ms = stim_ms + float(window_ms[0])
+    end_ms = stim_ms + float(window_ms[1])
+    if end_ms < start_ms:
+        raise ValueError(f"window_ms end must be >= start, got {window_ms}")
+    return stim_ms, start_ms, end_ms
+
+
+def _format_onset_list_ms(onsets_ms: np.ndarray) -> str:
+    return ";".join(f"{x:.6g}" for x in np.asarray(onsets_ms, dtype=float))
 
 
 def extract_spike_rates_at_aff(
@@ -247,6 +319,105 @@ def extract_spike_rates_at_aff(
                             min_duration_ms=ca_min_duration_ms,
                         )
                     ),
+                )
+            )
+
+    return rows
+
+
+def extract_spike_occurrences_at_aff(
+    folder: str,
+    aff_idx: int,
+    stim_idx: int = 0,
+    window_ms: tuple[float, float] = DEFAULT_WINDOW_MS,
+    stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+    ap_thresh_mV: float = DEFAULT_AP_THRESH_MV,
+    ca_v_thresh_mV: float = DEFAULT_CA_V_THRESH_MV,
+    ca_min_duration_ms: float = DEFAULT_CA_MIN_DURATION_MS,
+) -> list[dict]:
+    """
+    Trial-level AP/Ca occurrence in a stimulation-aligned time window.
+
+    occurrence is binary per trial: any number of event onsets inside the
+    absolute window [stim_time + window_ms[0], stim_time + window_ms[1]]
+    counts as 1.  Ca event onsets use the first sample of each qualifying
+    suprathreshold run.
+    """
+    soma_raw, apic_raw, simu_info = _load_run_folder(folder)
+    if simu_info is None:
+        return []
+
+    rows: list[dict] = []
+    stim_ms, win_start_ms, win_end_ms = _window_bounds_ms(
+        simu_info,
+        window_ms=window_ms,
+        stim_time_key=stim_time_key,
+    )
+
+    if soma_raw is not None:
+        soma = _normalize_trace_shape(soma_raw)
+        dt_s = _dt_seconds_from_trace(soma, simu_info)
+        n_stim, n_aff, n_trials = soma.shape[1], soma.shape[2], soma.shape[3]
+        if stim_idx >= n_stim or aff_idx >= n_aff or aff_idx < -n_aff:
+            return rows
+        aff_labels = _aff_activation_labels(simu_info, n_aff)
+        for trial in range(n_trials):
+            trace = soma[:, stim_idx, aff_idx, trial]
+            all_onsets_ms = _onset_times_ms(
+                ap_spike_onset_indices(trace, ap_thresh_mV=ap_thresh_mV),
+                dt_s,
+            )
+            in_window = all_onsets_ms[(all_onsets_ms >= win_start_ms) & (all_onsets_ms <= win_end_ms)]
+            rows.append(
+                dict(
+                    aff_idx=aff_idx,
+                    aff_label=int(aff_labels[aff_idx]),
+                    trial=trial,
+                    spike_type="ap",
+                    occurred=int(in_window.size > 0),
+                    n_events_total=int(all_onsets_ms.size),
+                    n_events_window=int(in_window.size),
+                    event_onsets_ms=_format_onset_list_ms(all_onsets_ms),
+                    window_event_onsets_ms=_format_onset_list_ms(in_window),
+                    stim_time_ms=stim_ms,
+                    window_start_ms=win_start_ms,
+                    window_end_ms=win_end_ms,
+                )
+            )
+
+    if apic_raw is not None:
+        apic = _normalize_trace_shape(apic_raw)
+        dt_s = _dt_seconds_from_trace(apic, simu_info)
+        n_stim, n_aff, n_trials = apic.shape[1], apic.shape[2], apic.shape[3]
+        if stim_idx >= n_stim or aff_idx >= n_aff or aff_idx < -n_aff:
+            return rows
+        aff_labels = _aff_activation_labels(simu_info, n_aff)
+        for trial in range(n_trials):
+            trace = apic[:, stim_idx, aff_idx, trial]
+            all_onsets_ms = _onset_times_ms(
+                ca_spike_onset_indices(
+                    trace,
+                    dt_s,
+                    v_thresh_mV=ca_v_thresh_mV,
+                    min_duration_ms=ca_min_duration_ms,
+                ),
+                dt_s,
+            )
+            in_window = all_onsets_ms[(all_onsets_ms >= win_start_ms) & (all_onsets_ms <= win_end_ms)]
+            rows.append(
+                dict(
+                    aff_idx=aff_idx,
+                    aff_label=int(aff_labels[aff_idx]),
+                    trial=trial,
+                    spike_type="ca",
+                    occurred=int(in_window.size > 0),
+                    n_events_total=int(all_onsets_ms.size),
+                    n_events_window=int(in_window.size),
+                    event_onsets_ms=_format_onset_list_ms(all_onsets_ms),
+                    window_event_onsets_ms=_format_onset_list_ms(in_window),
+                    stim_time_ms=stim_ms,
+                    window_start_ms=win_start_ms,
+                    window_end_ms=win_end_ms,
                 )
             )
 
@@ -355,6 +526,91 @@ def build_spike_rate_dataframe_across_ranges(
     return df
 
 
+def build_spike_occurrence_dataframe_across_ranges(
+    root_dir: str,
+    range_idxs: Iterable[int],
+    sec_types: Iterable[str] = ("basal", "apical"),
+    conditions: Iterable[str] = ("clus", "distr"),
+    suffix: str = "singclus_ap",
+    aff_label: int = DEFAULT_AFF_LABEL_FULL,
+    stim_idx: int = 0,
+    window_ms: tuple[float, float] = DEFAULT_WINDOW_MS,
+    stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+) -> pd.DataFrame:
+    """
+    Scan experiments and extract binary AP/Ca occurrence per trial in a window.
+    """
+    rows = []
+    root_dir = root_dir.rstrip("/")
+
+    for condition in conditions:
+        for sec_type in sec_types:
+            for range_idx in range_idxs:
+                base_prefix = f"{root_dir}/{sec_type}_range{range_idx}_clus_invivo_"
+                exp_dir = _exp_dir_from_base(base_prefix, condition, suffix)
+                epoch_folders = _find_epoch_folders_two_level(exp_dir)
+                if not epoch_folders:
+                    continue
+
+                for epoch_idx, folder in epoch_folders:
+                    soma_raw, apic_raw, simu_info = _load_run_folder(folder)
+                    if simu_info is None:
+                        continue
+
+                    n_aff = None
+                    if soma_raw is not None:
+                        n_aff = _normalize_trace_shape(soma_raw).shape[2]
+                    elif apic_raw is not None:
+                        n_aff = _normalize_trace_shape(apic_raw).shape[2]
+                    if n_aff is None:
+                        continue
+
+                    try:
+                        aff_idx = _resolve_aff_index_for_label(simu_info, n_aff, aff_label)
+                    except ValueError:
+                        continue
+
+                    occurrence_rows = extract_spike_occurrences_at_aff(
+                        folder,
+                        aff_idx=aff_idx,
+                        stim_idx=stim_idx,
+                        window_ms=window_ms,
+                        stim_time_key=stim_time_key,
+                    )
+                    for r in occurrence_rows:
+                        rows.append(
+                            dict(
+                                epoch=epoch_idx,
+                                suffix=suffix,
+                                condition=condition,
+                                sec_type=sec_type,
+                                range_idx=int(range_idx),
+                                aff_idx=int(r["aff_idx"]),
+                                aff_label=int(r["aff_label"]),
+                                trial=int(r["trial"]),
+                                spike_type=str(r["spike_type"]),
+                                occurred=int(r["occurred"]),
+                                n_events_total=int(r["n_events_total"]),
+                                n_events_window=int(r["n_events_window"]),
+                                event_onsets_ms=str(r["event_onsets_ms"]),
+                                window_event_onsets_ms=str(r["window_event_onsets_ms"]),
+                                stim_time_ms=float(r["stim_time_ms"]),
+                                window_start_ms=float(r["window_start_ms"]),
+                                window_end_ms=float(r["window_end_ms"]),
+                                folder=folder,
+                            )
+                        )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise RuntimeError(
+            "No AP/Ca spike occurrences extracted. Check root_dir, range_idxs, "
+            f"conditions={list(conditions)}, suffix={suffix}, aff_label={aff_label}, "
+            f"window_ms={window_ms}."
+        )
+    return df
+
+
 def summarize_rates_by_range(df: pd.DataFrame) -> pd.DataFrame:
     """Mean and SEM across epochs and trials."""
     return (
@@ -373,13 +629,37 @@ def summarize_rates_by_range(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _lookup_rate(
+def summarize_occurrences_by_range(df: pd.DataFrame) -> pd.DataFrame:
+    """Mean binary occurrence probability and SEM across epochs/trials."""
+    return (
+        df.groupby(
+            ["suffix", "condition", "spike_type", "sec_type", "range_idx", "aff_label"],
+            as_index=False,
+        )
+        .agg(
+            event_prob=("occurred", "mean"),
+            event_sem=(
+                "occurred",
+                lambda s: float(np.std(s, ddof=1) / np.sqrt(len(s))) if len(s) > 1 else 0.0,
+            ),
+            n_samples=("occurred", "count"),
+            n_events_window=("n_events_window", "sum"),
+            n_events_total=("n_events_total", "sum"),
+            window_start_ms=("window_start_ms", "first"),
+            window_end_ms=("window_end_ms", "first"),
+        )
+    )
+
+
+def _lookup_value(
     summary_df: pd.DataFrame,
     spike_type: str,
     sec_type: str,
     range_idx: int,
     condition: str,
     suffix: str,
+    value_col: str,
+    err_col: str,
 ) -> tuple[float, float]:
     sub = summary_df[
         (summary_df["spike_type"] == spike_type)
@@ -390,7 +670,7 @@ def _lookup_rate(
     ]
     if sub.empty:
         return np.nan, np.nan
-    return float(sub["rate_mean"].iloc[0]), float(sub["rate_sem"].iloc[0])
+    return float(sub[value_col].iloc[0]), float(sub[err_col].iloc[0])
 
 
 def _draw_basal_apical_range_panel(
@@ -402,6 +682,8 @@ def _draw_basal_apical_range_panel(
     range_idxs: list[int],
     color_list_basal: list[tuple[float, float, float]],
     color_list_apical: list[tuple[float, float, float]],
+    value_col: str = "rate_mean",
+    err_col: str = "rate_sem",
 ) -> None:
     """One subplot: 3 basal bars (left) + 3 apical bars (right), colored by range."""
     width, col_gap = 1.0, 1.0
@@ -410,8 +692,8 @@ def _draw_basal_apical_range_panel(
 
     mean_b, sem_b, mean_a, sem_a = [], [], [], []
     for ri in range_idxs:
-        mb, sb = _lookup_rate(summary_df, spike_type, "basal", ri, condition, suffix)
-        ma, sa = _lookup_rate(summary_df, spike_type, "apical", ri, condition, suffix)
+        mb, sb = _lookup_value(summary_df, spike_type, "basal", ri, condition, suffix, value_col, err_col)
+        ma, sa = _lookup_value(summary_df, spike_type, "apical", ri, condition, suffix, value_col, err_col)
         mean_b.append(mb)
         sem_b.append(sb)
         mean_a.append(ma)
@@ -452,6 +734,10 @@ def plot_ap_ca_by_range_fig1_style(
     range_idxs: list[int] | None = None,
     range_legend_labels: list[str] | None = None,
     figsize: tuple[float, float] = (8.0, 6.0),
+    value_col: str = "rate_mean",
+    err_col: str = "rate_sem",
+    ylabel_map: dict[str, str] | None = None,
+    title_prefix: str = "Spike rate across distance ranges",
 ) -> plt.Figure:
     """
     2x2 panels: rows = AP / Ca; cols = clus / distr.
@@ -487,11 +773,15 @@ def plot_ap_ca_by_range_fig1_style(
                 range_idxs,
                 color_list_basal,
                 color_list_apical,
+                value_col=value_col,
+                err_col=err_col,
             )
             ax.set_title(f"{spike_type.upper()} — {cond_titles.get(condition, condition)}")
 
-    axes[0, 0].set_ylabel("AP spike rate (Hz)")
-    axes[1, 0].set_ylabel("Ca spike rate (Hz)")
+    if ylabel_map is None:
+        ylabel_map = {"ap": "AP spike rate (Hz)", "ca": "Ca spike rate (Hz)"}
+    axes[0, 0].set_ylabel(ylabel_map.get("ap", "AP"))
+    axes[1, 0].set_ylabel(ylabel_map.get("ca", "Ca"))
 
     handles = [
         (
@@ -511,7 +801,7 @@ def plot_ap_ca_by_range_fig1_style(
     )
     aff_val = int(summary_df["aff_label"].iloc[0])
     fig.suptitle(
-        f"Spike rate across distance ranges (aff={aff_val} synapses) — {suffix}",
+        f"{title_prefix} (aff={aff_val} synapses) — {suffix}",
         y=1.02,
     )
     fig.tight_layout()
@@ -545,6 +835,59 @@ def visualize_ap_ca_across_ranges(
         conditions=conditions,
         range_idxs=range_idxs,
     )
+
+    if save_path is not None:
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return raw_df, summary_df, fig
+
+
+def visualize_ap_ca_occurrence_across_ranges(
+    root_dir: str,
+    range_idxs: list[int],
+    conditions: tuple[str, str] = ("clus", "distr"),
+    suffix: str = "singclus_ap",
+    aff_label: int = DEFAULT_AFF_LABEL_FULL,
+    stim_idx: int = 0,
+    window_ms: tuple[float, float] = DEFAULT_WINDOW_MS,
+    stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+    save_path: str | None = None,
+    fig_format: str = "pdf",
+    show: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, plt.Figure]:
+    raw_df = build_spike_occurrence_dataframe_across_ranges(
+        root_dir=root_dir,
+        range_idxs=range_idxs,
+        conditions=conditions,
+        suffix=suffix,
+        aff_label=aff_label,
+        stim_idx=stim_idx,
+        window_ms=window_ms,
+        stim_time_key=stim_time_key,
+    )
+    summary_df = summarize_occurrences_by_range(raw_df)
+
+    fig = plot_ap_ca_by_range_fig1_style(
+        summary_df,
+        suffix=suffix,
+        conditions=conditions,
+        range_idxs=range_idxs,
+        value_col="event_prob",
+        err_col="event_sem",
+        ylabel_map={"ap": "AP occurrence probability", "ca": "Ca occurrence probability"},
+        title_prefix=f"Spike occurrence probability in window [{window_ms[0]:g}, {window_ms[1]:g}] ms",
+    )
+    for ax in fig.axes:
+        ax.set_ylim(0.0, 1.0)
 
     if save_path is not None:
         save_dir = os.path.dirname(save_path)
@@ -597,6 +940,28 @@ def main():
     )
     parser.add_argument("--stim_idx", type=int, default=0)
     parser.add_argument(
+        "--analysis_mode",
+        choices=["rate", "probability", "both"],
+        default="rate",
+        help="rate: whole-simulation spike rate; probability: binary occurrence in window; both: save both.",
+    )
+    parser.add_argument(
+        "--window_ms",
+        nargs=2,
+        type=float,
+        default=list(DEFAULT_WINDOW_MS),
+        metavar=("START", "END"),
+        help=(
+            "Window relative to stimulation time for probability mode, in ms "
+            f"(default: {DEFAULT_WINDOW_MS[0]} {DEFAULT_WINDOW_MS[1]})."
+        ),
+    )
+    parser.add_argument(
+        "--stim_time_key",
+        default=DEFAULT_STIM_TIME_KEY,
+        help="simulation_params.json key used as stimulation time for probability mode.",
+    )
+    parser.add_argument(
         "--output_dir",
         default="./results/ap_ca_spike",
         help="Directory for figure and CSV output.",
@@ -618,29 +983,60 @@ def main():
         )
 
     os.makedirs(args.output_dir, exist_ok=True)
-    out_name = f"ap_ca_clus_distr_aff{args.aff_label}_by_range.{args.fig_format}"
-    save_path = os.path.join(args.output_dir, out_name)
 
-    raw_df, summary_df, _ = visualize_ap_ca_across_ranges(
-        root_dir=args.root_dir,
-        range_idxs=list(args.range_idxs),
-        conditions=spat_conds,  # type: ignore[arg-type]
-        suffix=args.suffix,
-        aff_label=args.aff_label,
-        stim_idx=args.stim_idx,
-        save_path=save_path,
-        fig_format=args.fig_format,
-        show=args.show,
-    )
+    if args.analysis_mode in ("rate", "both"):
+        out_name = f"ap_ca_clus_distr_aff{args.aff_label}_by_range.{args.fig_format}"
+        save_path = os.path.join(args.output_dir, out_name)
 
-    raw_df.to_csv(
-        os.path.join(args.output_dir, f"spike_rates_raw_aff{args.aff_label}.csv"),
-        index=False,
-    )
-    summary_df.to_csv(
-        os.path.join(args.output_dir, f"spike_rates_summary_aff{args.aff_label}.csv"),
-        index=False,
-    )
+        raw_df, summary_df, _ = visualize_ap_ca_across_ranges(
+            root_dir=args.root_dir,
+            range_idxs=list(args.range_idxs),
+            conditions=spat_conds,  # type: ignore[arg-type]
+            suffix=args.suffix,
+            aff_label=args.aff_label,
+            stim_idx=args.stim_idx,
+            save_path=save_path,
+            fig_format=args.fig_format,
+            show=args.show,
+        )
+
+        raw_df.to_csv(
+            os.path.join(args.output_dir, f"spike_rates_raw_aff{args.aff_label}.csv"),
+            index=False,
+        )
+        summary_df.to_csv(
+            os.path.join(args.output_dir, f"spike_rates_summary_aff{args.aff_label}.csv"),
+            index=False,
+        )
+
+    if args.analysis_mode in ("probability", "both"):
+        window_ms = (float(args.window_ms[0]), float(args.window_ms[1]))
+        win_tag = f"win{window_ms[0]:g}_{window_ms[1]:g}ms".replace("-", "m").replace(".", "p")
+        out_name = f"ap_ca_clus_distr_aff{args.aff_label}_prob_{win_tag}_by_range.{args.fig_format}"
+        save_path = os.path.join(args.output_dir, out_name)
+
+        raw_df, summary_df, _ = visualize_ap_ca_occurrence_across_ranges(
+            root_dir=args.root_dir,
+            range_idxs=list(args.range_idxs),
+            conditions=spat_conds,  # type: ignore[arg-type]
+            suffix=args.suffix,
+            aff_label=args.aff_label,
+            stim_idx=args.stim_idx,
+            window_ms=window_ms,
+            stim_time_key=str(args.stim_time_key),
+            save_path=save_path,
+            fig_format=args.fig_format,
+            show=args.show,
+        )
+
+        raw_df.to_csv(
+            os.path.join(args.output_dir, f"spike_occurrence_raw_aff{args.aff_label}_{win_tag}.csv"),
+            index=False,
+        )
+        summary_df.to_csv(
+            os.path.join(args.output_dir, f"spike_occurrence_summary_aff{args.aff_label}_{win_tag}.csv"),
+            index=False,
+        )
 
 
 if __name__ == "__main__":
