@@ -56,7 +56,7 @@ def _auto_output_path(
     output_dir: str,
     trace_type: str,
     sec_type: str,
-    range_idx: int,
+    range_idxs: list[int],
     aff_label: int,
     n_traces: int,
     win_start_ms: float,
@@ -64,8 +64,9 @@ def _auto_output_path(
     fig_format: str,
 ) -> str:
     prefix = TRACE_CONFIG[trace_type]["filename_prefix"]
+    range_tag = "range" + "_".join(str(int(x)) for x in range_idxs)
     name = (
-        f"{prefix}_{sec_type}_range{range_idx}_aff{aff_label}_first{n_traces}_"
+        f"{prefix}_{sec_type}_{range_tag}_aff{aff_label}_first{n_traces}_"
         f"window{_tag_number(win_start_ms)}_{_tag_number(win_end_ms)}ms.{fig_format}"
     )
     return os.path.join(output_dir, name)
@@ -128,12 +129,59 @@ def collect_voltage_traces(
     return time_ms, rows
 
 
-def plot_conditions(
+def _draw_trace_panel(
+    ax: plt.Axes,
+    *,
+    time_ms: np.ndarray,
+    rows: list[dict],
+    condition: str,
+    range_idx: int,
+    window_ms: tuple[float, float],
+    xlim_ms: tuple[float, float] | None,
+    show_legend: bool,
+) -> tuple[float, float]:
+    stim_ms = float(rows[0]["stim_time_ms"])
+    win_start_ms = stim_ms + window_ms[0]
+    win_end_ms = stim_ms + window_ms[1]
+    colors = plt.cm.tab10(np.linspace(0, 1, max(10, len(rows))))
+    for idx, row in enumerate(rows):
+        ax.plot(
+            time_ms,
+            row["trace"],
+            linewidth=1.0,
+            alpha=0.9,
+            color=colors[idx % len(colors)],
+            label=f"epoch {row['epoch']}",
+        )
+    ax.axvspan(win_start_ms, win_end_ms, color="0.85", alpha=0.65, zorder=0)
+    ax.axvline(stim_ms, color="black", linestyle="--", linewidth=1.0, alpha=0.75)
+    ax.text(
+        0.02,
+        0.96,
+        f"window {win_start_ms:g}-{win_end_ms:g} ms",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=9,
+        color="0.25",
+    )
+    ax.set_title(f"range{range_idx} | {condition}: first {len(rows)} traces")
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    if xlim_ms is not None:
+        ax.set_xlim(*xlim_ms)
+    if show_legend and len(rows) <= 10:
+        ax.legend(frameon=False, fontsize=7, loc="best")
+    return win_start_ms, win_end_ms
+
+
+def plot_range_stack(
     *,
     root_dir: str,
     trace_type: str,
     sec_type: str,
-    range_idx: int,
+    range_idxs: list[int],
     conditions: list[str],
     suffix: str,
     aff_label: int,
@@ -147,73 +195,53 @@ def plot_conditions(
     output_path: str | None = None,
 ) -> str:
     fig, axes = plt.subplots(
-        1,
+        len(range_idxs),
         len(conditions),
-        figsize=(5.8 * len(conditions), 4.2),
+        figsize=(5.8 * len(conditions), 3.7 * len(range_idxs)),
         sharex=True,
         sharey=True,
         squeeze=False,
     )
-    axes_1d = axes[0]
 
     all_rows: list[dict] = []
     win_start_ms: float | None = None
     win_end_ms: float | None = None
-    for ax, condition in zip(axes_1d, conditions):
-        time_ms, rows = collect_voltage_traces(
-            root_dir=root_dir,
-            trace_type=trace_type,
-            sec_type=sec_type,
-            range_idx=range_idx,
-            condition=condition,
-            suffix=suffix,
-            aff_label=aff_label,
-            stim_idx=stim_idx,
-            n_traces=n_traces,
-            stim_time_key=stim_time_key,
-        )
-        all_rows.extend(rows)
-        stim_ms = float(rows[0]["stim_time_ms"])
-        this_win_start_ms = stim_ms + window_ms[0]
-        this_win_end_ms = stim_ms + window_ms[1]
-        if win_start_ms is None:
-            win_start_ms = this_win_start_ms
-            win_end_ms = this_win_end_ms
-        colors = plt.cm.tab10(np.linspace(0, 1, max(10, len(rows))))
-        for idx, row in enumerate(rows):
-            ax.plot(
-                time_ms,
-                row["trace"],
-                linewidth=1.0,
-                alpha=0.9,
-                color=colors[idx % len(colors)],
-                label=f"epoch {row['epoch']}",
+    for row_idx, range_idx in enumerate(range_idxs):
+        for col_idx, condition in enumerate(conditions):
+            ax = axes[row_idx, col_idx]
+            time_ms, rows = collect_voltage_traces(
+                root_dir=root_dir,
+                trace_type=trace_type,
+                sec_type=sec_type,
+                range_idx=range_idx,
+                condition=condition,
+                suffix=suffix,
+                aff_label=aff_label,
+                stim_idx=stim_idx,
+                n_traces=n_traces,
+                stim_time_key=stim_time_key,
             )
-        ax.axvspan(this_win_start_ms, this_win_end_ms, color="0.85", alpha=0.65, zorder=0)
-        ax.axvline(stim_ms, color="black", linestyle="--", linewidth=1.0, alpha=0.75)
-        ax.text(
-            0.02,
-            0.96,
-            f"window {this_win_start_ms:g}-{this_win_end_ms:g} ms",
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=9,
-            color="0.25",
-        )
-        ax.set_title(f"{condition}: first {len(rows)} traces")
-        ax.set_xlabel("Time (ms)")
-        ax.grid(True, axis="y", alpha=0.25)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        if xlim_ms is not None:
-            ax.set_xlim(*xlim_ms)
-        if len(rows) <= 10:
-            ax.legend(frameon=False, fontsize=7, loc="best")
+            all_rows.extend(rows)
+            this_win_start_ms, this_win_end_ms = _draw_trace_panel(
+                ax,
+                time_ms=time_ms,
+                rows=rows,
+                condition=condition,
+                range_idx=range_idx,
+                window_ms=window_ms,
+                xlim_ms=xlim_ms,
+                show_legend=(row_idx == 0 and col_idx == len(conditions) - 1),
+            )
+            if win_start_ms is None:
+                win_start_ms = this_win_start_ms
+                win_end_ms = this_win_end_ms
+            if col_idx == 0:
+                ax.set_ylabel(TRACE_CONFIG[trace_type]["ylabel"])
+            if row_idx == len(range_idxs) - 1:
+                ax.set_xlabel("Time (ms)")
 
-    axes_1d[0].set_ylabel(TRACE_CONFIG[trace_type]["ylabel"])
     fig.suptitle(
-        f"{TRACE_CONFIG[trace_type]['title']} | {sec_type} range{range_idx} | aff={aff_label} | {suffix}",
+        f"{TRACE_CONFIG[trace_type]['title']} | {sec_type} ranges {','.join(str(x) for x in range_idxs)} | aff={aff_label} | {suffix}",
         fontsize=12,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
@@ -224,7 +252,7 @@ def plot_conditions(
             output_dir=output_dir,
             trace_type=trace_type,
             sec_type=sec_type,
-            range_idx=range_idx,
+            range_idxs=range_idxs,
             aff_label=aff_label,
             n_traces=n_traces,
             win_start_ms=win_start_ms,
@@ -238,11 +266,12 @@ def plot_conditions(
     plt.close(fig)
 
     print(f"Saved {output_path}")
-    for condition in conditions:
-        rows = [r for r in all_rows if f"/{sec_type}_range{range_idx}_{condition}_invivo_" in r["folder"]]
-        epochs = [r["epoch"] for r in rows]
-        aff_idxs = sorted(set(int(r["aff_idx"]) for r in rows))
-        print(f"{trace_type} {sec_type} range{range_idx} {condition}: epochs={epochs}, aff_idx={aff_idxs}, n={len(rows)}")
+    for range_idx in range_idxs:
+        for condition in conditions:
+            rows = [r for r in all_rows if f"/{sec_type}_range{range_idx}_{condition}_invivo_" in r["folder"]]
+            epochs = [r["epoch"] for r in rows]
+            aff_idxs = sorted(set(int(r["aff_idx"]) for r in rows))
+            print(f"{trace_type} {sec_type} range{range_idx} {condition}: epochs={epochs}, aff_idx={aff_idxs}, n={len(rows)}")
     return output_path
 
 
@@ -265,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output_path",
         default=None,
-        help="Optional explicit path, only allowed for a single trace/sec/range combination.",
+        help="Optional explicit path, only allowed for a single trace_type/sec_type combination.",
     )
     return parser.parse_args()
 
@@ -274,20 +303,20 @@ def main() -> None:
     args = parse_args()
     xlim_ms = None if args.xlim_ms is None else (float(args.xlim_ms[0]), float(args.xlim_ms[1]))
     combos = [
-        (trace_type, sec_type, int(range_idx))
+        (trace_type, sec_type)
         for trace_type in args.trace_types
         for sec_type in args.sec_types
-        for range_idx in args.range_idxs
     ]
     if args.output_path is not None and len(combos) != 1:
-        raise SystemExit("--output_path can only be used with exactly one trace_type/sec_type/range_idx combo")
+        raise SystemExit("--output_path can only be used with exactly one trace_type/sec_type combo")
 
-    for trace_type, sec_type, range_idx in combos:
-        plot_conditions(
+    range_idxs = [int(x) for x in args.range_idxs]
+    for trace_type, sec_type in combos:
+        plot_range_stack(
             root_dir=args.root_dir,
             trace_type=trace_type,
             sec_type=sec_type,
-            range_idx=range_idx,
+            range_idxs=range_idxs,
             conditions=list(args.conditions),
             suffix=args.suffix,
             aff_label=int(args.aff_label),
