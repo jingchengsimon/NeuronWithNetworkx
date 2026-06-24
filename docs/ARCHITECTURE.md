@@ -6,27 +6,24 @@
 
 ```
 L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_workers_synapse)
+  ├── analysis/nmda_spike_detection.py  ← segment NMDA spike rate
   │
-  └── utils/cell_with_networkx.py    ← CellWithNetworkx, h.run(), 输出保存
-        ├── utils/graph_utils.py           ← 形态 → DiG, branch order
-        ├── utils/distance_utils.py        ← cable distance (递归)
-        ├── utils/add_inputs_utils.py      ← 突触创建 + spike train 注入
-        │     ├── utils/synapses_models.py   ← AMPANMDA wrapper
-        │     ├── utils/generate_pink_noise.py ← 1/f noise (纯 numpy)
-        │     └── utils/replay_background_spikes.py ← replay spike maps
-        ├── utils/generate_stim_utils.py   ← preunit 映射 + VecStim 生成
-        ├── utils/replay_layout_from_csv.py ← replay 突触布局
-        ├── utils/nmda_detection_utils.py  ← segment NMDA spike rate
-        └── utils/visualize_utils.py       ← 可视化 (不在仿真路径中)
+  └── utils/l5pn_model.py            ← L5PNModel, h.run(), 输出保存
+        ├── utils/morphology_graph.py      ← 形态 → DiG, branch order
+        ├── utils/cable_distance.py        ← cable distance (递归)
+        ├── utils/synaptic_inputs.py       ← 突触创建 + spike train 注入
+        │     ├── utils/synapse_models.py    ← AMPANMDA wrapper
+        │     └── utils/pink_noise.py        ← 1/f noise (纯 numpy)
+        ├── utils/cluster_protocol.py      ← preunit 映射 + presynaptic stimulus schedule
+        └── utils/random_streams.py        ← seed fallback + named RNG policy
 ```
 
 ### 依赖规则
 
-- `generate_pink_noise.py` 和 `generate_stim_utils.py` 是 **纯计算模块**，不 import NEURON。
-- `cell_with_networkx.py` 持有 `CellWithNetworkx`、调用 `h.run()`、负责输出保存，并协调各 utility 模块。
-- `add_inputs_utils.py` 负责创建/连接输入相关 NEURON 对象和 DataFrame 写入，但不调用 `h.run()`。
-- `replay_*.py` 模块仅读取 CSV，不生成新的随机数。
-- `graph_utils.py` 和 `distance_utils.py` 只操作形态信息，不接触突触。
+- `pink_noise.py`、`cluster_protocol.py` 和 `random_streams.py` 是 **纯计算模块**，不 import NEURON。
+- `l5pn_model.py` 持有 `L5PNModel`、调用 `h.run()`、负责输出保存，并协调各核心模块。
+- `synaptic_inputs.py` 负责创建/连接输入相关 NEURON 对象和 DataFrame 写入，但不调用 `h.run()`。
+- `morphology_graph.py` 和 `cable_distance.py` 只操作形态信息，不接触突触。
 
 ---
 
@@ -38,20 +35,20 @@ L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_work
                          └───────────┬─────────────┘
                                      │
                          ┌───────────▼─────────────┐
-                         │  CellWithNetworkx.__init__│
+                         │     L5PNModel.__init__    │
                          │  • all_sections/segments  │
                          │  • DiG (directed graph)   │
                          │  • section_df             │
                          └───────────┬─────────────┘
                                      │
                          ┌───────────▼─────────────┐
-                         │     add_synapses()       │
+                         │ initialize_synapse_layout() │
                          │  • length-weighted random │
                          │  → section_synapse_df     │
                          └───────────┬─────────────┘
                                      │
             ┌────────────────────────▼──────────────────────────┐
-            │           assign_clustered_synapses()             │
+            │              assign_synapse_clusters()             │
             │  • distance thresholds → zone selection           │
             │  • generate_indices() → preunit-cluster mapping   │
             │  • exponential dist → cluster member recruitment  │
@@ -59,7 +56,7 @@ L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_work
             └────────────────────────┬──────────────────────────┘
                                      │
             ┌────────────────────────▼──────────────────────────┐
-            │                  add_inputs()                      │
+            │             run_stimulation_protocol()             │
             │                                                    │
             │  ┌──────────────────────────────────────────┐     │
             │  │ 4a. add_background_exc_inputs()          │     │
@@ -82,7 +79,7 @@ L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_work
             │  │   • λ = FREQ_INH × total/mean(total)      │     │
             │  │   • Poisson → dropout → spike_train_inh   │     │
             │  │                                           │     │
-            │  │  4d. run_simulation()                     │     │
+            │  │  4d. _run_single_trial()                  │     │
             │  │   • h.run()                               │     │
             │  │   • record → arrays                       │     │
             │  └───────────────────────────────────────────┘     │
@@ -105,8 +102,8 @@ L5b_simulation.py (CLI + 并行调度: num_epochs / max_workers_epoch / max_work
 ### 3.1  模型文件
 
 - **mod mechanism**: 自定义 AMPA + NMDA 双组分突触（mod 源码未纳入）
-- **参数文件**: `modelFile/AMPANMDA.json`
-- **Python wrapper**: `utils/synapses_models.py` → `AMPANMDA(syn_params, loc, section, channel_type)`
+- **参数文件**: `model/AMPANMDA.json`
+- **Python wrapper**: `utils/synapse_models.py` → `AMPANMDA(syn_params, loc, section, channel_type)`
 
 ### 3.2  关键属性
 
@@ -246,10 +243,10 @@ run_combination(args)
   │     )
   │     ProcessPoolExecutor(max_workers=max_workers_epoch)
   │       └─ build_cell(run_args)  × N
-  │             └─ CellWithNetworkx(..., max_workers_synapse=...)
-  │                   ├─ add_synapses()     → ThreadPoolExecutor(max_workers_synapse)
-  │                   └─ add_inputs()       → add_inputs_utils (same thread limit)
-  │                         └─ run_simulation()  ← 主线程 h.run()
+  │             └─ L5PNModel(..., max_workers_synapse=...)
+  │                   ├─ initialize_synapse_layout() → ThreadPoolExecutor(max_workers_synapse)
+  │                   └─ run_stimulation_protocol()  → synaptic_inputs (same thread limit)
+  │                         └─ _run_single_trial()    ← 主线程 h.run()
   │
   └─ (无 epoch_mode / num_batches / 外部分批)
 ```

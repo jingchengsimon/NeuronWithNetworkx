@@ -17,23 +17,29 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 ```
 .
 ├── L5b_simulation.py          # 主入口：CLI + 并行调度
-├── modelFile/                 # 形态 (cell1.asc/swc)、hoc 模板、AMPANMDA.json
-├── mod/                       # NEURON mechanism（编译后 .so/.dll，源码未纳入）
+├── model/                     # 形态 (cell1.asc/swc)、hoc 模板、AMPANMDA.json
+├── mod/                       # tracked NEURON .mod mechanism sources
+├── arm64/ + x86_64/          # local compiled mechanisms; Git-ignored
 ├── utils/
-│   ├── cell_with_networkx.py  # CellWithNetworkx 类 + h.run() + 输出保存
-│   ├── add_inputs_utils.py    # 背景 / 聚类输入的突触创建与 spike train 注入
-│   ├── generate_pink_noise.py # 1/f pink noise 生成器
-│   ├── generate_stim_utils.py # preunit→cluster 映射 + VecStim 刺激生成
-│   ├── generate_init_firing_utils.py  # (segment-level pink noise, 实验性)
-│   ├── synapses_models.py     # AMPANMDA wrapper
-│   ├── graph_utils.py         # 形态 → networkx DiG + branch order
-│   ├── distance_utils.py      # cable distance 递归计算
-│   ├── replay_background_spikes.py   # replay 模式: CSV→spike map
-│   ├── replay_layout_from_csv.py     # replay 模式: CSV→突触布局
-│   ├── nmda_detection_utils.py       # segment NMDA spike rate 检测
-│   └── visualize_utils.py     # 可视化辅助
-├── utils_anal/                # 分析脚本（不在仿真路径中）
-├── utils_viz/                 # 可视化脚本
+│   ├── l5pn_model.py          # L5PNModel 类 + h.run() + 输出保存
+│   ├── synaptic_inputs.py     # 背景 / 聚类输入的突触创建与 spike train 注入
+│   ├── pink_noise.py          # 1/f pink noise 生成器
+│   ├── cluster_protocol.py    # preunit→cluster 映射 + presynaptic stimulus schedule
+│   ├── random_streams.py      # seed fallback、RNG ownership 与 deterministic child seeds
+│   ├── synapse_models.py      # AMPANMDA wrapper
+│   ├── morphology_graph.py    # 形态 → networkx DiG + branch order
+│   └── cable_distance.py      # cable distance 递归计算
+├── analysis/
+│   ├── nmda_spike_detection.py       # segment NMDA spike rate 检测与保存
+│   ├── ap_ca_spike_analysis.py
+│   ├── trace_analysis.py
+│   ├── variability_analysis.py
+│   ├── figures/
+│   ├── diagnostics/
+│   ├── morphology/
+│   └── notebooks/                    # local only; Git-ignored
+├── scripts/                    # reproducibility/operational entry points
+├── results/                    # generated local outputs; Git-ignored
 └── docs/                      # 约束文档（本目录）
 ```
 
@@ -42,14 +48,14 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 ## 3  核心工作流（调用顺序不可更改）
 
 ```
-1. CellWithNetworkx.__init__()          # 加载形态 + graph
-2.   .add_synapses()                    # 突触按 length-weighted 分布
-3.   .assign_clustered_synapses()       # cluster 分配（distance range 内）
-4.   .add_inputs()                      # 以下子步骤 ↓
+1. L5PNModel.__init__()                 # 加载形态 + graph
+2.   .initialize_synapse_layout()       # 突触按 length-weighted 分布
+3.   .assign_synapse_clusters()         # cluster 分配（distance range 内）
+4.   .run_stimulation_protocol()        # 以下子步骤 ↓
    4a. add_background_exc_inputs()      # 兴奋性背景 (pink noise Poisson)
    4b. [loop] add_clustered_inputs()    # cluster stimulus (VecStim)
    4c. [loop] add_background_inh_inputs() # 抑制性背景 (tracking exc)
-   4d. [loop] run_simulation()          # h.run() + 录制
+   4d. [loop] _run_single_trial()       # h.run() + 录制
 5. 保存 npy / csv / json / npz
 ```
 
@@ -57,19 +63,27 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 ---
 
-## 4  随机种子三分体（最易出 bug 的部分）
+## 4  Random-seed ownership contract
 
-| 种子 | 维度 | 控制对象 | RNG 类型 |
-|------|------|----------|----------|
-| `syn_pos_seed` | 空间 | 突触位置、cluster 中心、syn_w (log-normal) | `default_rng` + `random.seed` |
-| `bg_spike_gen_seed` | 背景时间 | pink noise, Poisson spike, inh tracking | per-synapse `default_rng` via hash |
-| `clus_spike_gen_seed` | 刺激时间 | `generate_vecstim` jitter, `perm` 排列 | `RandomState` |
+The three seeds most relevant to clustered stimulation have deliberately separate responsibilities:
 
-**规则**：
-- 三种种子 **严格隔离**，不可混用。
-- `assign_clustered_synapses` 中 `clus_loc_rnd = RandomState(syn_pos_seed)`——必须是 `RandomState` 而非 `default_rng`。
-- 多线程背景输入使用 `generate_synapse_seed(base_seed, i)` 保证确定性——不可回退到共享 RNG。
-- 默认 fallback: 三种种子均回退到 `epoch`。
+| Seed | Owns | Must not control |
+|------|------|------------------|
+| `bg_syn_pos_seed` | The locations of all background excitatory and inhibitory synapses. In `invivo`, it also determines the log-normal weights of all excitatory synapses, including synapses later selected as clustered synapses. | Cluster membership, preunit assignment, or spike timing. Inhibitory weights are fixed and are not sampled from this seed. |
+| `clus_syn_pos_seed` | Cluster/preunit matching (`generate_indices`), cluster-center and member selection, the assignment of `pre_unit_id` to concrete synapses, and the preunit activation order (`perm`). In `invitro`, where background initialization is skipped, it also determines clustered excitatory weights. | Presynaptic spike timing. In `invivo`, it must not overwrite weights already assigned using `bg_syn_pos_seed`. |
+| `clus_spike_gen_seed` | Presynaptic clustered-stimulus timing generated by `generate_vecstim`, including stimulus-time jitter for each `pre_unit_id`. | Synapse location, cluster membership, preunit-to-synapse connectivity, activation order, or synaptic weight. |
+
+`bg_spike_gen_seed` is an additional independent temporal seed. It controls background pink-noise selection, excitatory Poisson/dropout events, and inhibitory background spike generation; it does not control synapse placement or weight.
+
+### Required invariants
+
+- Keep spatial/connectivity randomness strictly separate from spike-generation randomness.
+- In `invivo`, background initialization creates the excitatory synapse and fixes its weight. Clustered stimulation subsequently adds the matched preunit spike train to that existing synapse without changing its weight.
+- The concrete preunit-to-synapse link is the `pre_unit_id` stored on each row of `section_synapse_df`. `add_clustered_inputs` joins a spike train to a synapse by matching this ID.
+- All production RNG construction and deterministic child-seed derivation belongs in `utils/random_streams.py`; other modules request the named stream for their random process.
+- `assign_synapse_clusters` must obtain its legacy `RandomState` through `cluster_assignment_rng(self.clus_syn_pos_seed)`. Do not silently replace that stream with `default_rng`.
+- Multithreaded background input generation must retain deterministic per-synapse streams from `background_exc_synapse_rng(base_seed, index)`; never share one mutable RNG across worker threads.
+- Default fallback behavior: each explicit seed falls back to the current `epoch`; the deprecated shared `syn_pos_seed`, when provided, is only a fallback for `bg_syn_pos_seed` and `clus_syn_pos_seed`.
 
 ---
 
@@ -77,7 +91,7 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 | # | 禁止操作 |
 |---|----------|
-| H1 | 修改三种种子的用途或影响范围 |
+| H1 | Violate the random-seed ownership contract or broaden any seed's responsibility without an explicit design decision. |
 | H2 | 改变 `section_synapse_df` 的列名 / 类型 / 语义 |
 | H3 | 在 `h.run()` 之前删除 NEURON 对象的 Python 引用（VecStim, Vector, NetCon 等） |
 | H4 | 将 `ThreadPoolExecutor` 用于包含 `h.run()` 的代码路径 |
@@ -108,8 +122,8 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 ### 添加新录制变量
 1. `__init__()` 声明 `self.xxx_array = None`
-2. `add_inputs()` 分配空间（`common_shape` 或 `dend_shape`）
-3. `run_simulation()` 创建 `h.Vector().record(...)` + 仿真后写入数组
+2. `run_stimulation_protocol()` 分配空间（`common_shape` 或 `dend_shape`）
+3. `_run_single_trial()` 创建 `h.Vector().record(...)` + 仿真后写入数组
 4. `arrays_to_save` 字典注册
 
 ### 添加新 CLI 参数
@@ -121,8 +135,8 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 
 ### 添加新突触类型
 1. `section_synapse_df['type']` 新增标识
-2. `add_single_synapse()` 添加分支
-3. `add_inputs()` 添加处理逻辑
+2. `_sample_synapse_locations()` 添加分支
+3. `run_stimulation_protocol()` 添加处理逻辑
 
 ---
 
@@ -137,7 +151,7 @@ NEURON-based compartmental simulation of a biophysically detailed **Layer 5 pyra
 | `--max_workers_epoch` | 20 | `ProcessPoolExecutor`：同一 `spat_cond` 内并行 `build_cell` 进程数 |
 | `--max_workers_synapse` | 30 | `ThreadPoolExecutor`：单进程内突触创建 / 背景输入 prep 线程数 |
 
-- `max_workers_synapse` 经 `build_cell()` → `CellWithNetworkx(max_workers_synapse=...)` → `add_synapses()` / `add_inputs()` → `add_inputs_utils`。
+- `max_workers_synapse` 经 `build_cell()` → `L5PNModel(max_workers_synapse=...)` → `initialize_synapse_layout()` / `run_stimulation_protocol()` → `synaptic_inputs`。
 - **禁止**用环境变量或模块级常量替代上述 CLI 默认值（除非脚本如 `run_var_exp.sh` 显式转发）。
 
 ### 任务展开顺序
@@ -164,3 +178,39 @@ for spat_cond in args.spat_cond:          # 串行：clus 全部完成后再 dis
 - **mod 文件未纳入版本控制**：agent 无法运行仿真，可做代码分析 / 重构 / mock 测试。
 - Linux: `./mod/x86_64/.libs/libnrnmech.so`；Windows: `./mod/nrnmech.dll`。
 - `h.celsius = 37`，`h.v_init = e_pas ≈ -90 mV`。
+
+---
+
+## 10  Remote Execution Preferences
+
+For remote diagnostics, prefer running commands directly over configured SSH aliases instead of asking the user to paste commands manually:
+
+- `ssh sjc-remote` for the user's remote terminal (`sjc@172.26.48.213`)
+- `ssh amarel` for Amarel, when relevant
+
+These hosts are expected to use SSH ControlMaster connection reuse. If the master connection is active, run remote checks directly from Codex. If SSH requires interactive authentication and Codex cannot proceed, then provide the user a single pasteable heredoc block as a fallback.
+
+Current project paths on `sjc-remote`:
+
+- Remote repo: `/G/MIMOlab/Codes/aim1_NeuronWithNetworkx`
+- Remote results root: `/G/results/simulation_singclus_supple_Jun26`
+- Conda Python for this project: `/G/anaconda3/bin/python`
+
+Use the explicit conda Python above for remote analysis / visualization commands. Do not waste time searching for Python environments unless that path fails. In non-interactive SSH shells, `python` may be absent from `PATH`, and `/usr/bin/python3` does not have project plotting dependencies such as `matplotlib`.
+
+Practical remote execution rules:
+
+- Use `ssh sjc-remote "bash -lc '...'"` for short remote checks.
+- For longer remote command blocks, use the single heredoc pattern below.
+- Quote remote globs for `scp`, e.g. `scp 'sjc-remote:/remote/path/*.pdf' local_dir/`, so the local shell does not expand them.
+- If direct SSH fails with local sandbox / ControlMaster socket errors, request escalated execution for the same `ssh sjc-remote` command rather than falling back to asking the user to paste commands.
+
+When providing fallback commands intended to be pasted into an interactive remote shell, wrap the full command block in a single heredoc:
+
+```bash
+bash <<'EOF'
+# commands go here
+EOF
+```
+
+Do not split related remote diagnostics into separate snippets. Provide one combined heredoc block so it can be pasted and run as a single unit.

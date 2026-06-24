@@ -3,19 +3,12 @@ import itertools
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor
-
-from utils.cell_with_networkx import CellWithNetworkx
-from utils.replay_background_spikes import resolve_replay_section_synapse_csv
+from analysis.nmda_spike_detection import save_segment_nmda_spike_rate_npz
+from utils.l5pn_model import L5PNModel
+from utils.random_streams import SEED_FIELDS, resolve_workflow_seeds
 
 # main function
-swc_file_path = './modelFile/cell1.asc'
-
-SEED_FIELDS = (
-    ('bg_syn_pos_seed', 'bpos'),
-    ('clus_syn_pos_seed', 'cpos'),
-    ('bg_spike_gen_seed', 'bspk'),
-    ('clus_spike_gen_seed', 'cspk'),
-)
+swc_file_path = './model/cell1.asc'
 
 def create_parser():
     """Create and configure argument parser with default values from utils"""
@@ -82,7 +75,7 @@ def create_parser():
     # Simulation modes
     parser.add_argument('--expected', action='store_true', default=False,
                         help='Use expected/linear-sum cluster stimulus logic. '
-                             'If set, iter_step is forced to 1 in add_inputs (default: False)')
+                             'If set, iter_step is forced to 1 in run_stimulation_protocol (default: False)')
     parser.add_argument('--aff_mode', type=str, default='linear',
                         choices=['linear', 'curve', 'full', 'custom'],
                         help='Activation mode across preunits: linear uses range(0, N+1, iter_step); '
@@ -158,7 +151,7 @@ def create_parser():
                              'Accepts one or more values; multiple values expand into separate runs. '
                              'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
     parser.add_argument('--clus_syn_pos_seed', type=int, nargs='+', default=None,
-                        help='Random seed for cluster assignment and clustered synapse weight overwrite. '
+                        help='Random seed for cluster assignment, preunit activation order, and invitro clustered weights. '
                              'Accepts one or more values; multiple values expand into separate runs. '
                              'If None, uses syn_pos_seed when provided, otherwise epoch value (default: None)')
     parser.add_argument('--syn_pos_seed', type=int, default=None,
@@ -173,21 +166,6 @@ def create_parser():
                              'preunit permutation). Accepts one or more values; multiple values expand into '
                              'separate runs. If None, uses epoch value. Distinct from bg_spike_gen_seed (bg only) '
                              '(default: None)')
-    parser.add_argument(
-        '--use_replay_bg',
-        action='store_true',
-        default=False,
-        help='If set, load synapse layout, cluster metadata, and background spikes from replay_bg_csv '
-             '(reference run). If not set, normal simulation: random synapses and generated background.',
-    )
-    parser.add_argument(
-        '--replay_bg_csv',
-        type=str,
-        default='/G/results/simulation_singclus_Oct25/basal_range0_clus_invivo_REAL/1/8/section_synapse_df.csv',
-        help='Reference path used only when --use_replay_bg is set: section_synapse_df.csv '
-             'or a run directory (uses section_synapse_df.csv inside). Spikes matched by syn identity.',
-    )
-    
     # Biophysics model selection
     # Default is False (use L5PCbiophys3.hoc without AP and Ca)
     # Use --with_ap to enable L5PCbiophys3withNaCa.hoc (with AP and Ca dynamics)
@@ -209,22 +187,19 @@ def build_cell(args):
     print(f'EPOCH {epoch}')
     print('='*80 + '\n')
 
-    # Random seeds: default to epoch if not set
-    # bg_syn_pos_seed: synapse locations and background synapse weights
-    # clus_syn_pos_seed: cluster assignment and clustered synapse weight overwrite
-    # bg_spike_gen_seed: background (bg) spike generation (bg spike trains, pink noise)
-    # clus_spike_gen_seed: cluster stimulus (stim times in generate_vecstim, preunit permutation)
-    bg_syn_pos_seed = args.bg_syn_pos_seed if args.bg_syn_pos_seed is not None else (
-        args.syn_pos_seed if args.syn_pos_seed is not None else epoch
+    seeds = resolve_workflow_seeds(
+        epoch=epoch,
+        bg_syn_pos_seed=args.bg_syn_pos_seed,
+        clus_syn_pos_seed=args.clus_syn_pos_seed,
+        bg_spike_gen_seed=args.bg_spike_gen_seed,
+        clus_spike_gen_seed=args.clus_spike_gen_seed,
+        legacy_syn_pos_seed=args.syn_pos_seed,
     )
-    clus_syn_pos_seed = args.clus_syn_pos_seed if args.clus_syn_pos_seed is not None else (
-        args.syn_pos_seed if args.syn_pos_seed is not None else epoch
-    )
-    bg_spike_gen_seed = args.bg_spike_gen_seed if args.bg_spike_gen_seed is not None else epoch
-    clus_spike_gen_seed = args.clus_spike_gen_seed if args.clus_spike_gen_seed is not None else epoch
+    bg_syn_pos_seed = seeds.bg_syn_pos
+    clus_syn_pos_seed = seeds.clus_syn_pos
+    bg_spike_gen_seed = seeds.bg_spike_gen
+    clus_spike_gen_seed = seeds.clus_spike_gen
 
-    replay_bg_csv = resolve_replay_section_synapse_csv(args.replay_bg_csv) if args.use_replay_bg else None
-           
     # Build channel_suffix: ensure leading underscore, then append conditional suffixes
     channel_suffix = args.channel_suffix.strip()
     channel_suffix = ('_' + channel_suffix) if channel_suffix and not channel_suffix.startswith('_') else channel_suffix
@@ -272,8 +247,6 @@ def build_cell(args):
         'max_workers_epoch': args.max_workers_epoch,
         'max_workers_synapse': args.max_workers_synapse,
         'with_ap': args.with_ap, 'with_global_rec': args.with_global_rec,
-        'use_replay_bg': args.use_replay_bg,
-        'replay_bg_csv': replay_bg_csv,
         'segment_nmda_spike_rate_npz': 'segment_nmda_spike_rate.npz' if args.with_global_rec else None,
     }
 
@@ -284,21 +257,23 @@ def build_cell(args):
     with open(json_filename, 'w') as json_file:
         json.dump(simulation_params, json_file, indent=4)
 
-    cell1 = CellWithNetworkx(swc_file_path, args.bg_exc_freq, args.bg_inh_freq, args.simu_duration, args.stim_duration, 
-                            bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, args.with_ap, args.with_global_rec,
-                            replay_bg_csv=replay_bg_csv, clus_syn_pos_seed=clus_syn_pos_seed,
-                            max_workers_synapse=args.max_workers_synapse)
-    cell1.add_synapses(args.num_syn_basal_exc, args.num_syn_apic_exc, args.num_syn_basal_inh,
-                       args.num_syn_apic_inh, args.num_syn_soma_inh)
+    cell1 = L5PNModel(swc_file_path, args.bg_exc_freq, args.bg_inh_freq, args.simu_duration, args.stim_duration,
+                     bg_syn_pos_seed, bg_spike_gen_seed, clus_spike_gen_seed, args.with_ap, args.with_global_rec,
+                     clus_syn_pos_seed=clus_syn_pos_seed, max_workers_synapse=args.max_workers_synapse)
+    cell1.initialize_synapse_layout(args.num_syn_basal_exc, args.num_syn_apic_exc, args.num_syn_basal_inh,
+                                    args.num_syn_apic_inh, args.num_syn_soma_inh)
     
-    cell1.assign_clustered_synapses(args.basal_channel_type, args.sec_type, args.dis_to_root,
-                                    args.num_clusters, args.cluster_radius, args.num_stim, args.stim_time,
-                                    args.spat_cond, args.num_conn_per_preunit, args.num_syn_per_clus, folder_path)
+    cell1.assign_synapse_clusters(args.basal_channel_type, args.sec_type, args.dis_to_root,
+                                  args.num_clusters, args.cluster_radius, args.num_stim, args.stim_time,
+                                  args.spat_cond, args.num_conn_per_preunit, args.num_syn_per_clus, folder_path)
 
-    cell1.add_inputs(folder_path, args.simu_cond, args.input_ratio_basal_apic,
-                     args.bg_exc_channel_type, args.initW, args.num_func_group, args.inh_delay, args.num_trials,
-                     use_fixedW=args.use_fixedW, fixedW=args.fixedW,
-                     expected=args.expected, aff_mode=args.aff_mode, aff_list=args.aff_list, iter_step=args.iter_step)
+    cell1.run_stimulation_protocol(folder_path, args.simu_cond, args.input_ratio_basal_apic,
+                                   args.bg_exc_channel_type, args.initW, args.num_func_group, args.inh_delay, args.num_trials,
+                                   use_fixedW=args.use_fixedW, fixedW=args.fixedW,
+                                   expected=args.expected, aff_mode=args.aff_mode, aff_list=args.aff_list, iter_step=args.iter_step)
+
+    if args.with_global_rec and cell1.seg_v_array is not None:
+        save_segment_nmda_spike_rate_npz(cell1, folder_path)
 
 
 def run_combination(args):
@@ -363,8 +338,12 @@ def run_combination(args):
             f'spat_cond={spat_cond} seeds=({seed_summary}) '
             f'({len(combinations)} tasks, max_workers_epoch={args.max_workers_epoch})'
         )
-        with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
-            list(executor.map(build_cell, combinations))
+        if args.max_workers_epoch == 1:
+            for combination in combinations:
+                build_cell(combination)
+        else:
+            with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
+                list(executor.map(build_cell, combinations))
 
 
 if __name__ == "__main__":

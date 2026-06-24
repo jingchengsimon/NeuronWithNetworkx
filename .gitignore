@@ -32,5 +32,27 @@ globals_backup_*.pkl
 # 忽略大文件，比如输出结果文件（已由 *.ipynb 覆盖，保留作说明）
 # BiophysInspectSimplified.ipynb
 
-# Results
-results
+# Generated simulation/analysis output (keep selected public artifacts elsewhere)
+results/
+
+# Removed historical prototypes; preserved in Git history only
+archive/
+
+# NEURON/nrnivmodl generated build products
+arm64/
+x86_64/
+mod/arm64/
+mod/x86_64/
+mod/*.c
+mod/*.cpp
+mod/*.o
+mod/*.so
+mod/*.dylib
+mod/*.dll
+mod/special*
+mod/makemod2c_inc
+mod/.libs/
+
+# Local exploratory analysis state
+notebooks/*.pkl
+notebooks/*_backup_*

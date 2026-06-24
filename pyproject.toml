@@ -9,10 +9,7 @@ line-length = 120
 # Exclude backup, legacy, and visualization-only directories
 exclude = [
     "mod/",
-    "modelFile/",
-    "utils_anal/",
-    "utils_viz/",
-    "notebooks/",
+    "model/",
     "results/",
     "__pycache__/",
     ".history/",
@@ -41,7 +38,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["utils"]
+known-first-party = ["analysis", "utils"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -53,10 +50,7 @@ warn_unused_configs = true
 ignore_missing_imports = true   # NEURON stubs don't exist
 exclude = [
     "mod/",
-    "modelFile/",
-    "utils_anal/",
-    "utils_viz/",
-    "notebooks/",
+    "model/",
     "results/",
     "backup/",
     "archive/",
@@ -67,5 +61,5 @@ module = "neuron.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "utils.synapses_models"
+module = "utils.synapse_models"
 ignore_errors = true   # heavily NEURON-dependent, no stubs

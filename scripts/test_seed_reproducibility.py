@@ -14,9 +14,9 @@ Note on soma_v / voltage traces:
   Seed-isolation tests use atol on soma_v only when the varied seed should affect dynamics.
   Short smoke runs use --stim_time 100 with --simu_duration 200 so cluster input falls in-window.
 
-Note on layout / add_synapses:
+Note on layout / initialize_synapse_layout:
   Synapse placement must use per-index seeds and preserve row order after
-  parallel map (see cell_with_networkx.add_single_synapse).
+  parallel map (see L5PNModel._sample_synapse_locations).
 """
 from __future__ import annotations
 
