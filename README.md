@@ -23,37 +23,23 @@ change integration efficacy under both in vitro-like and in vivo-like conditions
 
 ### Figure 1. Model Validation and Naturalistic Neuronal Responses
 
-![Figure 1: Model validation and naturalistic responses](results/assets/figure1_model_validation.png)
-
-Suggested caption focus: reconstructed morphology, realistic spontaneous activity, and baseline dendritic/somatic response properties.
+![Figure 1: Dendrites exhibit realistic activties and integration nonlinearity](results/assets/figure1_model_validation.png)
 
 ### Figure 2. Clustered vs Distributed Synaptic Placement Across Dendritic Arborizations
 
-![Figure 2: Clustered vs distributed spatial patterns](results/assets/figure2_spatial_patterns.png)
-
-Suggested caption focus: spatial matching protocol, basal/apical branch targeting, and distance-to-root bins.
+![Figure 2: Diagram of synaptic
+distribution patterns on basal
+dendrites and apical tufts](results/assets/figure2_spatial_patterns.png)
 
 ### Figure 3. Comparable Integration Efficacy via NMDA-Mediated Compensation
 
-![Figure 3: NMDA-mediated compensatory integration](results/assets/figure3_compensatory_nmda.png)
+![Figure 3: Similar somatic integration efficacy between clustered
+and distributed patterns](results/assets/figure3_compensatory_nmda.png)
 
-Suggested caption focus: matched clustered/distributed comparisons for somatic response metrics, with emphasis on compensation across dendritic locations.
-
-### Figure 5. NMDA Contribution to Somatic EPSP Integral (Area)
+### Figure 4. NMDA Receptors extend temporal summation for synaptic clustering
 
 ![Figure 5: NMDA contribution to EPSP integral](results/assets/figure5_nmda_integral.png)
 
-Suggested caption focus: NMDA-dependent enhancement of temporal summation and EPSP area under clustered activation.
-
-## Project Status
-
-| Component | Status |
-|---|---|
-| Simulation pipeline | Complete |
-| Seed reproducibility framework | Validated |
-| Single-cluster analysis | Complete |
-| Multi-cluster analysis | In progress |
-| Manuscript-quality figure set | In preparation |
 
 ## 5-Minute Quick Start
 
@@ -105,8 +91,4 @@ This seed ownership design makes clustered/distributed comparisons reproducible 
 - Architecture and data flow: `docs/ARCHITECTURE.md`
 - Technical conventions: `docs/CONVENTIONS.md`
 
-## Scope and Current Limits
 
-- This repository is in active manuscript preparation.
-- Main conclusions are stable at the level reported in conference material.
-- Additional multi-cluster sweeps and figure polishing are ongoing.
