@@ -19,8 +19,6 @@ change integration efficacy under both in vitro-like and in vivo-like conditions
 - Clustered synapses are **less sensitive to temporal jitter** and can produce **longer-lasting somatic responses**.
 - Naturalistic background synaptic drive reduces integration efficacy on basal dendrites, while increasing low-activation gain on distal apical tuft branches.
 
-## Figure Roadmap (Placeholders)
-
 ### Figure 1. Model Validation and Naturalistic Neuronal Responses
 
 ![Figure 1: Dendrites exhibit realistic activties and integration nonlinearity](results/assets/figure1_model_validation.png)
