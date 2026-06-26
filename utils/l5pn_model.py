@@ -613,8 +613,14 @@ class L5PNModel:
             'soma': (self.sections_soma, 'soma')
         }
         sections, section_type = region_mapping[region]
-        section_length = np.array(self.section_df.loc[self.section_df['section_type'] == section_type, 'length'])
-        weights = section_length / section_length.sum()
+        # Cast section lengths to float before normalization. `section_df` keeps mixed dtypes
+        # (object-heavy rows), and np.random.Generator.choice requires numeric probabilities.
+        section_length = (
+            self.section_df.loc[self.section_df['section_type'] == section_type, 'length']
+            .astype(float)
+            .to_numpy(dtype=np.float64)
+        )
+        weights = section_length / float(section_length.sum())
 
         def generate_synapse(i):
             syn_rnd = synapse_placement_rng(

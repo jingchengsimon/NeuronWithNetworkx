@@ -157,7 +157,12 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
 
     spike_times_sync_array_full = section_synapse_df[section_synapse_df['type'].isin(exc_types)]['spike_train']
     for spike_times_bg_list, spike_times_sync_list in zip(spike_times_bg_array, spike_times_sync_array_full):
-        spike_times_vec = spike_times_bg_list[0]  # 'spike train' is a list of lists (spike_trains)
+        # 'spike_train_bg' is expected to be a list of lists; keep robust when empty.
+        spike_times_vec = (
+            spike_times_bg_list[0]
+            if spike_times_bg_list is not None and len(spike_times_bg_list) > 0
+            else np.array([], dtype=float)
+        )
 
         if spike_times_sync_list is not None and len(spike_times_sync_list) > 0:
             spike_times_vec_clus = spike_times_sync_list[-1]
@@ -193,7 +198,13 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
 
     else:
         # The first one is the inh spike train w/o synchronous input
-        spike_trains_inh_bg = np.array([spikes[0] for spikes in sec_syn_bg_inh_df['spike_train_bg']], dtype=object)
+        spike_trains_inh_bg = np.array(
+            [
+                spikes[0] if spikes is not None and len(spikes) > 0 else np.array([], dtype=float)
+                for spikes in sec_syn_bg_inh_df['spike_train_bg']
+            ],
+            dtype=object,
+        )
 
     # Process synchronous spike trains
     for spike_times_sync_list in spike_times_sync_array:

@@ -214,3 +214,18 @@ EOF
 ```
 
 Do not split related remote diagnostics into separate snippets. Provide one combined heredoc block so it can be pasted and run as a single unit.
+
+---
+
+## 11  Shared Dashboard Registration
+
+When this project submits remote compute jobs, register/update the run in the centralized
+dashboard repository instead of using any project-local dashboard copy.
+
+- Shared dashboard source root: `/Users/jingchengshi/Desktop/MIMO-Rutgers/1-Codes/dashboard`
+- Shared task registry: `/Users/jingchengshi/Desktop/MIMO-Rutgers/1-Codes/dashboard/tasks.json`
+- Preferred command prefix:
+  `cd "/Users/jingchengshi/Desktop/MIMO-Rutgers/1-Codes" && python3 -m dashboard.manage_tasks ...`
+
+The dashboard service endpoint remains:
+`http://Jingchengs-Mac-mini.local:8765/`

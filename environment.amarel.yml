@@ -1,0 +1,14 @@
+name: l5b_amarel_neuron
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - neuron=8.2.*
+  - numpy=1.26.*
+  - pandas
+  - networkx
+  - tqdm
+  - numba
+  - scipy
+  - biopython
+  - matplotlib
