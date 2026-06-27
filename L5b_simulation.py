@@ -1,6 +1,7 @@
 import argparse
 import itertools
 import json
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from analysis.nmda_spike_detection import save_segment_nmda_spike_rate_npz
@@ -342,7 +343,8 @@ def run_combination(args):
             for combination in combinations:
                 build_cell(combination)
         else:
-            with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
+            ctx = multiprocessing.get_context('spawn')
+            with ProcessPoolExecutor(max_workers=args.max_workers_epoch, mp_context=ctx) as executor:
                 list(executor.map(build_cell, combinations))
 
 
