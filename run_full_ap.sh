@@ -3,11 +3,11 @@
 #   1200 = 100 epochs x 2 sec_type x 3 dis_to_root x 2 spat_cond(clus,distr)
 # Run with no args on the login node -> fans out into 6 jobs (one per
 # sec_type x dis_to_root combo), each running clus+distr x 100 epochs = 200 tasks.
-#SBATCH --partition=main-redhat
+#SBATCH --partition=mem-redhat
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=256G
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=500G
 #SBATCH --time=2-00:00:00
 
 if [ -z "$SLURM_JOB_ID" ]; then
@@ -41,5 +41,5 @@ python L5b_simulation.py \
   --folder_tag 1 \
   --start_epoch 1 \
   --num_epochs 100 \
-  --max_workers_epoch 60 \
+  --max_workers_epoch 40 \
   --max_workers_synapse 50
