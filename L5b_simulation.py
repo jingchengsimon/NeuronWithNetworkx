@@ -3,8 +3,6 @@ import itertools
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor
-from analysis.nmda_spike_detection import save_segment_nmda_spike_rate_npz
-from utils.l5pn_model import L5PNModel
 from utils.random_streams import SEED_FIELDS, resolve_workflow_seeds
 
 # main function
@@ -181,6 +179,9 @@ def create_parser():
 
 def build_cell(args):
     """Build and simulate cell with parameters from argparse"""
+    # Lazy imports: NEURON must NOT be loaded in the main process before fork
+    from analysis.nmda_spike_detection import save_segment_nmda_spike_rate_npz
+    from utils.l5pn_model import L5PNModel
 
     epoch = args.epoch
     print('\n' + '='*80)
