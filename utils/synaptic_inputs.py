@@ -104,7 +104,10 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         netstim.play(h.Vector(spike_train_bg))
 
         if section['netcon'] is not None:
-            section['netcon'].weight[0] = 0
+            try:
+                section['netcon'].weight[0] = 0
+            except (AttributeError, RuntimeError):
+                pass  # HocObject ref may be stale after h.run() on some NEURON versions
 
         netcon = h.NetCon(netstim, synapse)
         netcon.delay = 0
@@ -338,7 +341,10 @@ def add_clustered_inputs(section_synapse_df, num_clusters, basal_channel_type, i
 
             ## turn off old netcons
             if section['netcon'] is not None:
-                section['netcon'].weight[0] = 0
+                try:
+                    section['netcon'].weight[0] = 0
+                except (AttributeError, RuntimeError):
+                    pass  # HocObject ref may be stale after h.run() on some NEURON versions
 
             netcon = h.NetCon(netstim, synapse) # netstim is always from the same unit with diff orientation
             netcon.delay = 0
