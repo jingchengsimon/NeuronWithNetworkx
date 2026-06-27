@@ -440,9 +440,21 @@ def _exp_dir_from_base(base_clus_invivo_prefix: str, condition: str, suffix: str
     return f"{base_root}_{condition.strip()}_invivo_{suffix.strip().lstrip('_')}"
 
 
-def _find_epoch_folders_two_level(exp_dir: str) -> list[tuple[int, str]]:
+def _find_epoch_folders_two_level(
+    exp_dir: str,
+    folder_tag: str | int | None = None,
+) -> list[tuple[int, str]]:
     out = []
-    for epoch_dir in glob.glob(os.path.join(exp_dir, "*", "*")):
+    if folder_tag is not None:
+        tag_name = str(int(folder_tag) % 100) if int(folder_tag) % 100 != 0 else "100"
+        tag_dir = os.path.join(exp_dir, tag_name)
+        if not os.path.isdir(tag_dir):
+            return out
+        search_glob = os.path.join(tag_dir, "*")
+    else:
+        search_glob = os.path.join(exp_dir, "*", "*")
+
+    for epoch_dir in glob.glob(search_glob):
         if not os.path.isdir(epoch_dir):
             continue
         ep_name = os.path.basename(epoch_dir)
@@ -460,6 +472,7 @@ def build_spike_rate_dataframe_across_ranges(
     suffix: str = "singclus_ap",
     aff_label: int = DEFAULT_AFF_LABEL_FULL,
     stim_idx: int = 0,
+    folder_tag: str | int | None = None,
 ) -> pd.DataFrame:
     """
     Scan {sec_type}_range{N}_clus_invivo_{suffix} for each range_idx and spat condition.
@@ -473,7 +486,7 @@ def build_spike_rate_dataframe_across_ranges(
             for range_idx in range_idxs:
                 base_prefix = f"{root_dir}/{sec_type}_range{range_idx}_clus_invivo_"
                 exp_dir = _exp_dir_from_base(base_prefix, condition, suffix)
-                epoch_folders = _find_epoch_folders_two_level(exp_dir)
+                epoch_folders = _find_epoch_folders_two_level(exp_dir, folder_tag=folder_tag)
                 if not epoch_folders:
                     continue
 
@@ -536,6 +549,7 @@ def build_spike_occurrence_dataframe_across_ranges(
     stim_idx: int = 0,
     window_ms: tuple[float, float] = DEFAULT_WINDOW_MS,
     stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+    folder_tag: str | int | None = None,
 ) -> pd.DataFrame:
     """
     Scan experiments and extract binary AP/Ca occurrence per trial in a window.
@@ -548,7 +562,7 @@ def build_spike_occurrence_dataframe_across_ranges(
             for range_idx in range_idxs:
                 base_prefix = f"{root_dir}/{sec_type}_range{range_idx}_clus_invivo_"
                 exp_dir = _exp_dir_from_base(base_prefix, condition, suffix)
-                epoch_folders = _find_epoch_folders_two_level(exp_dir)
+                epoch_folders = _find_epoch_folders_two_level(exp_dir, folder_tag=folder_tag)
                 if not epoch_folders:
                     continue
 
@@ -730,17 +744,17 @@ def _draw_basal_apical_range_panel(
 def plot_ap_ca_by_range_fig1_style(
     summary_df: pd.DataFrame,
     suffix: str,
-    conditions: tuple[str, str] = ("clus", "distr"),
+    conditions: tuple[str, ...] = ("clus", "distr"),
     range_idxs: list[int] | None = None,
     range_legend_labels: list[str] | None = None,
-    figsize: tuple[float, float] = (8.0, 6.0),
+    figsize: tuple[float, float] | None = None,
     value_col: str = "rate_mean",
     err_col: str = "rate_sem",
     ylabel_map: dict[str, str] | None = None,
     title_prefix: str = "Spike rate across distance ranges",
 ) -> plt.Figure:
     """
-    2x2 panels: rows = AP / Ca; cols = clus / distr.
+    2xN panels: rows = AP / Ca; cols = spat conditions (clus and/or distr).
     Each panel: 3 basal bars + gap + 3 apical bars; bar color = distance range.
     """
     if range_idxs is None:
@@ -756,14 +770,19 @@ def plot_ap_ca_by_range_fig1_style(
     spike_row = {"ap": 0, "ca": 1}
     cond_titles = {"clus": "clustered", "distr": "distributed"}
 
-    fig, axes = plt.subplots(2, 2, figsize=figsize, sharey="row")
+    n_cols = len(conditions)
+    if figsize is None:
+        figsize = (4.5 * n_cols, 6.0)
+
+    fig, axes = plt.subplots(2, n_cols, figsize=figsize, sharey="row")
+    if n_cols == 1:
+        axes = np.array(axes).reshape(2, 1)
 
     for spike_type, row in spike_row.items():
-        for condition in conditions:
+        for col_idx, condition in enumerate(conditions):
             if condition not in cond_col:
                 raise ValueError(f"Unknown spat condition {condition!r}; expected clus or distr.")
-            col = cond_col[condition]
-            ax = axes[row, col]
+            ax = axes[row, col_idx]
             _draw_basal_apical_range_panel(
                 ax,
                 summary_df,
@@ -815,6 +834,7 @@ def visualize_ap_ca_across_ranges(
     suffix: str = "singclus_ap",
     aff_label: int = DEFAULT_AFF_LABEL_FULL,
     stim_idx: int = 0,
+    folder_tag: str | int | None = None,
     save_path: str | None = None,
     fig_format: str = "pdf",
     show: bool = False,
@@ -826,6 +846,7 @@ def visualize_ap_ca_across_ranges(
         suffix=suffix,
         aff_label=aff_label,
         stim_idx=stim_idx,
+        folder_tag=folder_tag,
     )
     summary_df = summarize_rates_by_range(raw_df)
 
@@ -860,6 +881,7 @@ def visualize_ap_ca_occurrence_across_ranges(
     stim_idx: int = 0,
     window_ms: tuple[float, float] = DEFAULT_WINDOW_MS,
     stim_time_key: str = DEFAULT_STIM_TIME_KEY,
+    folder_tag: str | int | None = None,
     save_path: str | None = None,
     fig_format: str = "pdf",
     show: bool = False,
@@ -873,6 +895,7 @@ def visualize_ap_ca_occurrence_across_ranges(
         stim_idx=stim_idx,
         window_ms=window_ms,
         stim_time_key=stim_time_key,
+        folder_tag=folder_tag,
     )
     summary_df = summarize_occurrences_by_range(raw_df)
 
@@ -933,6 +956,11 @@ def main():
         help="Channel suffix after invivo_, e.g. singclus_ap.",
     )
     parser.add_argument(
+        "--folder_tag",
+        default=None,
+        help="If set, only scan runs under this folder tag (e.g. 2 for .../2/{epoch}/).",
+    )
+    parser.add_argument(
         "--aff_label",
         type=int,
         default=DEFAULT_AFF_LABEL_FULL,
@@ -975,17 +1003,18 @@ def main():
     parser.add_argument("--show", action="store_true", help="Call plt.show().")
     args = parser.parse_args()
 
-    spat_conds = tuple(args.spat_conditions)
-    if len(spat_conds) != 2:
+    spat_conds = tuple(dict.fromkeys(args.spat_conditions))
+    if not spat_conds or len(spat_conds) > 2:
         raise SystemExit(
-            "This script expects exactly 2 spat conditions for the 2x2 layout "
-            f"(clus + distr). Got: {spat_conds}"
+            "Provide 1 or 2 spat conditions (clus and/or distr). "
+            f"Got: {spat_conds}"
         )
+    spat_tag = "_".join(spat_conds)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
     if args.analysis_mode in ("rate", "both"):
-        out_name = f"ap_ca_clus_distr_aff{args.aff_label}_by_range.{args.fig_format}"
+        out_name = f"ap_ca_{spat_tag}_aff{args.aff_label}_by_range.{args.fig_format}"
         save_path = os.path.join(args.output_dir, out_name)
 
         raw_df, summary_df, _ = visualize_ap_ca_across_ranges(
@@ -995,6 +1024,7 @@ def main():
             suffix=args.suffix,
             aff_label=args.aff_label,
             stim_idx=args.stim_idx,
+            folder_tag=args.folder_tag,
             save_path=save_path,
             fig_format=args.fig_format,
             show=args.show,
@@ -1012,7 +1042,7 @@ def main():
     if args.analysis_mode in ("probability", "both"):
         window_ms = (float(args.window_ms[0]), float(args.window_ms[1]))
         win_tag = f"win{window_ms[0]:g}_{window_ms[1]:g}ms".replace("-", "m").replace(".", "p")
-        out_name = f"ap_ca_clus_distr_aff{args.aff_label}_prob_{win_tag}_by_range.{args.fig_format}"
+        out_name = f"ap_ca_{spat_tag}_aff{args.aff_label}_prob_{win_tag}_by_range.{args.fig_format}"
         save_path = os.path.join(args.output_dir, out_name)
 
         raw_df, summary_df, _ = visualize_ap_ca_occurrence_across_ranges(
@@ -1024,6 +1054,7 @@ def main():
             stim_idx=args.stim_idx,
             window_ms=window_ms,
             stim_time_key=str(args.stim_time_key),
+            folder_tag=args.folder_tag,
             save_path=save_path,
             fig_format=args.fig_format,
             show=args.show,
