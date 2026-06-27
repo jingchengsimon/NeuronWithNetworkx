@@ -113,16 +113,24 @@ def add_background_exc_inputs(section_synapse_df, syn_param_exc, DURATION, FREQ_
         netcon.delay = 0
         netcon.weight[0] = 1 #syn_weight
 
-        # with lock:
-        if section['synapse'] is None:
-            section_synapse_df.at[section.name, 'synapse'] = synapse
-            section_synapse_df.at[section.name, 'syn_w'] = 1000 * initW_distr
-        section_synapse_df.at[section.name, 'netstim'] = netstim
-        section_synapse_df.at[section.name, 'spike_train_bg'].append(list(spike_train_bg))
-        section_synapse_df.at[section.name, 'netcon'] = netcon
+        # Compute in the worker thread but DO NOT mutate the shared DataFrame here:
+        # concurrent .at[] writes race pandas' BlockManager (IndexError on pandas>=2).
+        # Return the result; the main thread applies it serially below.
+        is_new = section['synapse'] is None
+        return (section.name, is_new, synapse,
+                1000 * initW_distr if is_new else None,
+                netstim, list(spike_train_bg), netcon)
 
     with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
-        list(tqdm(executor.map(process_section, range(num_syn_bg_exc)), total=num_syn_bg_exc))
+        results = list(tqdm(executor.map(process_section, range(num_syn_bg_exc)), total=num_syn_bg_exc))
+
+    for name, is_new, synapse, syn_w, netstim, spike_train, netcon in results:
+        if is_new:
+            section_synapse_df.at[name, 'synapse'] = synapse
+            section_synapse_df.at[name, 'syn_w'] = syn_w
+        section_synapse_df.at[name, 'netstim'] = netstim
+        section_synapse_df.at[name, 'spike_train_bg'].append(spike_train)
+        section_synapse_df.at[name, 'netcon'] = netcon
 
     return section_synapse_df
 
@@ -260,16 +268,23 @@ def add_background_inh_inputs(section_synapse_df, syn_param_inh, DURATION, FREQ_
         netcon.delay = inh_delay # ms
         netcon.weight[0] = syn_weight
 
-        # with lock:
-        if section['synapse'] is None:
-            section_synapse_df.at[section.name, 'synapse'] = synapse
-            section_synapse_df.at[section.name, 'syn_w'] = 1000 * syn_weight
-        section_synapse_df.at[section.name, 'netstim'] = netstim
-        section_synapse_df.at[section.name, 'spike_train_bg'].append(list(spike_train_bg))
-        section_synapse_df.at[section.name, 'netcon'] = netcon
+        # Compute in the worker thread but DO NOT mutate the shared DataFrame here
+        # (see add_background_exc_inputs); return the result and apply it serially.
+        is_new = section['synapse'] is None
+        return (section.name, is_new, synapse,
+                1000 * syn_weight if is_new else None,
+                netstim, list(spike_train_bg), netcon)
 
     with ThreadPoolExecutor(max_workers=max_workers_synapse) as executor:
-        executor.map(process_section, range(num_syn_bg_inh))
+        results = list(tqdm(executor.map(process_section, range(num_syn_bg_inh)), total=num_syn_bg_inh))
+
+    for name, is_new, synapse, syn_w, netstim, spike_train, netcon in results:
+        if is_new:
+            section_synapse_df.at[name, 'synapse'] = synapse
+            section_synapse_df.at[name, 'syn_w'] = syn_w
+        section_synapse_df.at[name, 'netstim'] = netstim
+        section_synapse_df.at[name, 'spike_train_bg'].append(spike_train)
+        section_synapse_df.at[name, 'netcon'] = netcon
 
     return section_synapse_df
 

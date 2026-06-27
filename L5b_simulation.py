@@ -2,7 +2,8 @@ import argparse
 import itertools
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor
+import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from utils.random_streams import SEED_FIELDS, resolve_workflow_seeds
 
 # main function
@@ -277,6 +278,43 @@ def build_cell(args):
         save_segment_nmda_spike_rate_npz(cell1, folder_path)
 
 
+def _run_tasks(combinations, max_workers):
+    """Run build_cell over combinations, isolating per-epoch failures.
+
+    Unlike executor.map (fail-fast), one failing epoch is logged and skipped
+    instead of aborting the whole job; missing epochs are recovered later by
+    the rerun_missing scripts. Returns the list of failed combinations.
+    """
+    def label(c):
+        return (f'epoch={c.epoch} simu_cond={c.simu_cond} spat_cond={c.spat_cond} '
+                f'sec_type={c.sec_type} dis_to_root={c.dis_to_root}')
+
+    def record(combo, exc):
+        print(f'[FAILED] {label(combo)}: {exc!r}', flush=True)
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
+        return combo
+
+    failures = []
+    if max_workers == 1:
+        for combo in combinations:
+            try:
+                build_cell(combo)
+            except Exception as exc:  # noqa: BLE001 - isolate per-epoch failures
+                failures.append(record(combo, exc))
+    else:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(build_cell, c): c for c in combinations}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:  # noqa: BLE001 - isolate per-epoch failures
+                    failures.append(record(futures[future], exc))
+
+    ok = len(combinations) - len(failures)
+    print(f'{ok}/{len(combinations)} tasks succeeded, {len(failures)} failed.', flush=True)
+    return failures
+
+
 def run_combination(args):
     """Expand CLI arguments and run requested parameter combinations."""
     if args.num_epochs <= 0:
@@ -339,12 +377,7 @@ def run_combination(args):
             f'spat_cond={spat_cond} seeds=({seed_summary}) '
             f'({len(combinations)} tasks, max_workers_epoch={args.max_workers_epoch})'
         )
-        if args.max_workers_epoch == 1:
-            for combination in combinations:
-                build_cell(combination)
-        else:
-            with ProcessPoolExecutor(max_workers=args.max_workers_epoch) as executor:
-                list(executor.map(build_cell, combinations))
+        _run_tasks(combinations, args.max_workers_epoch)
 
 
 if __name__ == "__main__":
